@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'register_screen.dart';
 
 // Obtén una instancia del cliente de Supabase para usar en tu app
 final supabase = Supabase.instance.client;
@@ -108,6 +109,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     ? const CircularProgressIndicator(color: Colors.white)
                     : const Text('Iniciar Sesión', style: TextStyle(fontSize: 18)),
               ),
+              const SizedBox(height: 24),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const RegisterScreen()),
+                  );
+                },
+                child: const Text('¿No tienes cuenta? Regístrate aquí'),
+              ),
             ],
           ),
         ),
@@ -115,3 +126,4 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+

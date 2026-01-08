@@ -21,9 +21,9 @@ CREATE TABLE evolutionsport.players (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     first_name VARCHAR(255) NOT NULL,
     last_name VARCHAR(255) NOT NULL,
-    date_of_birth DATE NOT NULL,
+    position VARCHAR(100),
     sessions_completed INT NOT NULL DEFAULT 0,
-    total_sessions INT NOT NULL DEFAULT 0,
+    last_attendance TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     academy_id UUID NOT NULL REFERENCES evolutionsport.academies(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
