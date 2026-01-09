@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/player.dart';
 import '../widgets/player_list.dart';
+import 'team_management_screen.dart';
+import 'groups_screen.dart'; 
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -71,8 +73,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         showControls: true,
         userRoleFuture: _userRoleFuture,
       ),
+      const GroupsScreen(), 
       const _PlaceholderPage(title: 'Calendario'),
-      const _PlaceholderPage(title: 'Perfil'),
     ];
 
     return Scaffold(
@@ -83,18 +85,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
             future: _userRoleFuture,
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: Chip(
-                  label: Text(
-                    snapshot.data == 'admin' ? 'ADMIN' : 'COACH',
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+              return Row(
+                children: [
+                  if (snapshot.data == 'admin')
+                    IconButton(
+                      icon: const Icon(Icons.people_outline),
+                      tooltip: 'Gestionar Equipo',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const TeamManagementScreen()),
+                        );
+                      },
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: Chip(
+                      label: Text(
+                        snapshot.data == 'admin' ? 'ADMIN' : 'COACH',
+                        style: const TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                      backgroundColor: snapshot.data == 'admin'
+                          ? Colors.red.withOpacity(0.2)
+                          : Colors.green.withOpacity(0.2),
+                      side: BorderSide.none,
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
-                  backgroundColor: snapshot.data == 'admin' ? Colors.red.withOpacity(0.2) : Colors.green.withOpacity(0.2),
-                  side: BorderSide.none,
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                ),
+                ],
               );
             },
           ),
@@ -121,11 +142,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             label: 'Dashboard',
           ),
           BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Jugadores'),
+          BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_today),
             label: 'Calendario',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Perfil'),
         ],
       ),
     );
@@ -182,7 +203,7 @@ class _DashboardContent extends StatelessWidget {
               playersFuture: playersFuture,
               onRefresh: onRefresh,
               showControls: false,
-              hideMarkedToday: true,
+              hideMarkedToday: true, // Only show pending players
               userRoleFuture: userRoleFuture,
             ),
           ),
