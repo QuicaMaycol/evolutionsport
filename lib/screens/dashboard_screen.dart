@@ -3,7 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/player.dart';
 import '../widgets/player_list.dart';
 import 'team_management_screen.dart';
-import 'groups_screen.dart'; 
+import 'groups_screen.dart';
+import 'calendar_screen.dart'; // Importar Calendario
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -73,8 +74,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         showControls: true,
         userRoleFuture: _userRoleFuture,
       ),
-      const GroupsScreen(), 
-      const _PlaceholderPage(title: 'Calendario'),
+      const GroupsScreen(),
+      const CalendarScreen(), // Pantalla Real
     ];
 
     return Scaffold(
