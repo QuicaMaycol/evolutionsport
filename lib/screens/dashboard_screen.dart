@@ -19,11 +19,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
   late Future<Map<String, dynamic>> _profileDataFuture;
   int _selectedIndex = 0;
 
+  late Future<List<Map<String, dynamic>>> _myAcademiesFuture; // Para cargar el dropdown
+
   @override
   void initState() {
     super.initState();
     _playersFuture = _loadPlayers();
     _profileDataFuture = _getProfileData();
+    _myAcademiesFuture = _loadMyAcademies(); // Cargar la lista de academias
+  }
+
+  Future<List<Map<String, dynamic>>> _loadMyAcademies() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return [];
+
+    try {
+      final response = await Supabase.instance.client
+          .from('coach_academies')
+          .select('academy_id, academies(name)')
+          .eq('coach_id', user.id)
+          .eq('is_active', true);
+      
+      // Mapear respuesta a lista limpia
+      return List<Map<String, dynamic>>.from(response.map((e) => {
+        'id': e['academy_id'],
+        'name': e['academies']['name'],
+      }));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Cambiar academia activa
+  Future<void> _switchAcademy(String? newAcademyId) async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await Supabase.instance.client
+          .from('profiles')
+          .update({'academy_id': newAcademyId}) // Si es null, vuelves a modo Freelancer
+          .eq('id', user.id);
+      
+      // Recargar todo
+      setState(() {
+        _profileDataFuture = _getProfileData();
+        _playersFuture = _loadPlayers();
+        _selectedIndex = 0; // Volver al inicio
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error cambiando de club: $e')));
+    }
   }
 
   Future<Map<String, dynamic>> _getProfileData() async {
@@ -109,14 +155,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
           else
             const CoachProfileScreen(),
           
-          const GroupsScreen(),
+          if (!isFreelance)
+            const GroupsScreen(),
           const CalendarScreen(),
         ];
 
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Evolution Sport'),
-            actions: [
+          return Scaffold(
+            appBar: AppBar(
+              // Reemplazamos el título estático por un Dropdown dinámico si hay opciones
+              title: FutureBuilder<List<Map<String, dynamic>>>(
+                future: _myAcademiesFuture,
+                builder: (context, academiesSnapshot) {
+                  // Si no hay academias (solo freelance) o está cargando, mostramos título normal
+                  if (!academiesSnapshot.hasData || academiesSnapshot.data!.isEmpty) {
+                     return const Text('Evolution Sport');
+                  }
+
+                  final myAcademies = academiesSnapshot.data!;
+                  // Agregar opción "Modo Freelancer" a la lista
+                  final allOptions = [
+                    {'id': null, 'name': 'Modo Freelancer'},
+                    ...myAcademies
+                  ];
+
+                  return DropdownButtonHideUnderline(
+                    child: DropdownButton<String?>(
+                      value: academyId, // El valor actual seleccionado (puede ser null)
+                      dropdownColor: Theme.of(context).primaryColor,
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                      items: allOptions.map((academy) {
+                        return DropdownMenuItem<String?>(
+                          value: academy['id'] as String?,
+                          child: Text(
+                            academy['name'],
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (newValue) {
+                        if (newValue != academyId) {
+                          _switchAcademy(newValue);
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+              actions: [
               FutureBuilder<Map<String, dynamic>>(
                 future: _profileDataFuture,
                 builder: (context, snapshot) {
@@ -174,7 +260,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 icon: Icon(isFreelance ? Icons.person : Icons.people), 
                 label: isFreelance ? 'Mi Perfil' : 'Jugadores'
               ),
-              const BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
+              if (!isFreelance)
+                const BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
               const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Planificar'),
             ],
           ),
@@ -254,91 +341,116 @@ class _FreelanceDashboard extends StatelessWidget {
 
   void _showJoinAcademyDialog(BuildContext context) {
     final codeController = TextEditingController();
+    bool isProcessing = false;
+    String? errorMessage;
     
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Unirse a un Club'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Ingresa el código que te proporcionó el administrador de la academia.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: codeController,
-              decoration: const InputDecoration(
-                labelText: 'Código de Academia',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.vpn_key),
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Unirse a un Club'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Ingresa el código que te proporcionó el administrador de la academia.'),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: codeController,
+                    decoration: InputDecoration(
+                      labelText: 'Código de Academia',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.vpn_key),
+                      errorText: errorMessage,
+                    ),
+                    enabled: !isProcessing,
+                  ),
+                  if (isProcessing)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 16.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                ],
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final code = codeController.text.trim();
-              if (code.isEmpty) return;
-              
-              Navigator.pop(context); // Cierra dialogo
-              
-              try {
-                // 1. Validar que la academia existe
-                final academy = await Supabase.instance.client
-                    .from('academies')
-                    .select()
-                    .eq('id', code) // Asumimos que el código ES el ID
-                    .maybeSingle();
-                
-                if (academy == null) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Código de academia inválido o no encontrado.'), backgroundColor: Colors.red),
-                    );
-                  }
-                  return;
-                }
+              actions: [
+                if (!isProcessing)
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancelar'),
+                  ),
+                if (!isProcessing)
+                  ElevatedButton(
+                    onPressed: () async {
+                      final code = codeController.text.trim();
+                      if (code.isEmpty) return;
+                      
+                      setState(() {
+                        isProcessing = true;
+                        errorMessage = null;
+                      });
+                      
+                      try {
+                        // USAR RPC (Función Segura de Base de Datos)
+                        // Esto evita problemas de permisos RLS
+                        final response = await Supabase.instance.client
+                            .rpc('join_academy', params: {'academy_code': code});
+                        
+                        final data = response as Map<String, dynamic>;
+                        final success = data['success'] as bool;
+                        final message = data['message'] as String?; // Mensaje de error si falla
+                        final academyName = data['academy_name'] as String?;
 
-                // 2. Actualizar el perfil del usuario para asignarle la academia
-                // Mantenemos is_freelancer en true porque sigue siendo freelancer aunque se una
-                final userId = Supabase.instance.client.auth.currentUser!.id;
-                await Supabase.instance.client.from('profiles').update({
-                  'academy_id': code,
-                  // Opcional: ¿is_freelancer se mantiene en true? 
-                  // El usuario dijo: "manteniedo sus plantillas y de mas cierto?"
-                  // Asi que sí, se mantiene como freelancer pero vinculado a una academia.
-                }).eq('id', userId);
+                        if (!success) {
+                          setState(() {
+                            isProcessing = false;
+                            errorMessage = message ?? 'Error desconocido al unirse.';
+                          });
+                          return;
+                        }
 
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('¡Te has unido a ${academy['name']}!')),
-                  );
-                  // Recargar la app o el dashboard para reflejar cambios
-                  // Lo más simple es trigger un rebuild del dashboard padre si fuera posible,
-                  // pero como esto es un StatelessWidget, pedimos al usuario recargar o hacemos un pushReplacement
-                  // Para efectos prácticos, navegar al Dashboard forzará un rebuild
-                  Navigator.pushReplacement(
-                    context, 
-                    MaterialPageRoute(builder: (_) => const DashboardScreen())
-                  );
-                }
+                        // ÉXITO: Cambiar contexto localmente
+                        final userId = Supabase.instance.client.auth.currentUser!.id;
+                        await Supabase.instance.client.from('profiles').update({
+                          'academy_id': code,
+                        }).eq('id', userId);
 
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error al unirse: $e'), backgroundColor: Colors.red),
-                  );
-                }
-              }
-            },
-            child: const Text('Unirse'),
-          ),
-        ],
-      ),
+                        if (context.mounted) {
+                          Navigator.pop(context); // Cerrar diálogo
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('¡Te has unido a $academyName!')),
+                          );
+                          Navigator.pushReplacement(
+                            context, 
+                            MaterialPageRoute(builder: (_) => const DashboardScreen())
+                          );
+                        }
+
+                      } catch (e) {
+                         // Mostrar error completo en un diálogo para poder leerlo
+                         showDialog(
+                           context: context,
+                           builder: (context) => AlertDialog(
+                             title: const Text('Error Detallado'),
+                             content: SingleChildScrollView(child: Text(e.toString())),
+                             actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                           ),
+                         );
+                         
+                         setState(() {
+                           isProcessing = false;
+                           errorMessage = 'Ver detalle en popup';
+                         });
+                      }
+                    },
+                    child: const Text('Unirse'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
