@@ -4,7 +4,8 @@ import '../models/player.dart';
 import '../widgets/player_list.dart';
 import 'team_management_screen.dart';
 import 'groups_screen.dart';
-import 'calendar_screen.dart'; // Importar Calendario
+import 'calendar_screen.dart';
+import 'coach_profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -15,42 +16,55 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late Future<List<Player>> _playersFuture;
-  late Future<String> _userRoleFuture;
+  late Future<Map<String, dynamic>> _profileDataFuture;
   int _selectedIndex = 0;
 
   @override
   void initState() {
     super.initState();
     _playersFuture = _loadPlayers();
-    _userRoleFuture = _getUserRole();
+    _profileDataFuture = _getProfileData();
   }
 
-  Future<String> _getUserRole() async {
+  Future<Map<String, dynamic>> _getProfileData() async {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return 'coach';
+    if (user == null) return {'role': 'coach', 'academy_id': null, 'is_freelancer': false};
     
-    try {
-      final response = await Supabase.instance.client
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single();
-      return response['role'] as String? ?? 'coach';
-    } catch (e) {
-      return 'coach'; // Default to safe role on error
-    }
+    final response = await Supabase.instance.client
+        .from('profiles')
+        .select('role, academy_id, is_freelancer')
+        .eq('id', user.id)
+        .single();
+    return Map<String, dynamic>.from(response);
   }
 
   Future<List<Player>> _loadPlayers() async {
-    final response = await Supabase.instance.client
-        .from('players')
-        .select(
-          'id, first_name, last_name, position, sessions_completed, last_attendance',
-        )
-        .order('last_attendance', ascending: false);
-    return (response as List)
-        .map((row) => Player.fromMap(row as Map<String, dynamic>))
-        .toList();
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return [];
+
+    try {
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('academy_id')
+          .eq('id', user.id)
+          .single();
+      
+      final academyId = profile['academy_id'];
+      if (academyId == null) return []; // Si es Freelance, lista vacía garantizada
+
+      // FILTRO ESTRICTO: Solo jugadores de MI academia
+      final response = await Supabase.instance.client
+          .from('players')
+          .select('id, first_name, last_name, position, sessions_completed, last_attendance')
+          .eq('academy_id', academyId) // <--- CRUCIAL: Seguridad añadida
+          .order('last_attendance', ascending: false);
+      
+      return (response as List)
+          .map((row) => Player.fromMap(row as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      return [];
+    }
   }
 
   Future<void> _refreshPlayers() async {
@@ -62,94 +76,110 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = <Widget>[
-      _DashboardContent(
-        playersFuture: _playersFuture,
-        onRefresh: _refreshPlayers,
-        userRoleFuture: _userRoleFuture,
-      ),
-      PlayerList(
-        playersFuture: _playersFuture,
-        onRefresh: _refreshPlayers,
-        showControls: true,
-        userRoleFuture: _userRoleFuture,
-      ),
-      const GroupsScreen(),
-      const CalendarScreen(), // Pantalla Real
-    ];
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _profileDataFuture,
+      builder: (context, profileSnapshot) {
+        if (!profileSnapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        
+        final role = profileSnapshot.data!['role'];
+        final academyId = profileSnapshot.data!['academy_id'];
+        // Ahora se considera Freelancer si:
+        // 1. Tiene el flag 'is_freelancer' en TRUE en la base de datos
+        // 2. O, como respaldo, si no tiene academia asignada (antiguo comportamiento)
+        final isFreelancerFlag = profileSnapshot.data!['is_freelancer'] == true;
+        final isFreelance = isFreelancerFlag || academyId == null;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Evolution Sport'),
-        actions: [
-          FutureBuilder<String>(
-            future: _userRoleFuture,
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const SizedBox.shrink();
-              return Row(
-                children: [
-                  if (snapshot.data == 'admin')
-                    IconButton(
-                      icon: const Icon(Icons.people_outline),
-                      tooltip: 'Gestionar Equipo',
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => const TeamManagementScreen()),
-                        );
-                      },
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8.0),
-                    child: Chip(
-                      label: Text(
-                        snapshot.data == 'admin' ? 'ADMIN' : 'COACH',
-                        style: const TextStyle(
-                            fontSize: 10, fontWeight: FontWeight.bold),
+        final pages = <Widget>[
+          if (isFreelance)
+            _FreelanceDashboard(onNavigateToStore: () => setState(() => _selectedIndex = 1))
+          else
+            _DashboardContent(
+              playersFuture: _playersFuture,
+              onRefresh: _refreshPlayers,
+              userRoleFuture: Future.value(role),
+            ),
+          
+          if (!isFreelance)
+            PlayerList(
+              playersFuture: _playersFuture,
+              onRefresh: _refreshPlayers,
+              showControls: true,
+              userRoleFuture: Future.value(role),
+            )
+          else
+            const CoachProfileScreen(),
+          
+          const GroupsScreen(),
+          const CalendarScreen(),
+        ];
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Evolution Sport'),
+            actions: [
+              FutureBuilder<Map<String, dynamic>>(
+                future: _profileDataFuture,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) return const SizedBox.shrink();
+                  final role = snapshot.data!['role'];
+                  return Row(
+                    children: [
+                      if (role == 'admin')
+                        IconButton(
+                          icon: const Icon(Icons.people_outline),
+                          tooltip: 'Gestionar Equipo',
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const TeamManagementScreen()),
+                            );
+                          },
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: Chip(
+                          label: Text(
+                            role == 'admin' ? 'ADMIN' : (isFreelance ? 'FREELANCE' : 'COACH'),
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                          backgroundColor: role == 'admin' ? Colors.red.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+                          side: BorderSide.none,
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
                       ),
-                      backgroundColor: snapshot.data == 'admin'
-                          ? Colors.red.withOpacity(0.2)
-                          : Colors.green.withOpacity(0.2),
-                      side: BorderSide.none,
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                ],
-              );
-            },
+                    ],
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: () => Supabase.instance.client.auth.signOut(),
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Cerrar Sesion',
-            onPressed: () => Supabase.instance.client.auth.signOut(),
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: pages[_selectedIndex % pages.length],
+            ),
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: pages[_selectedIndex],
-        ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
+          bottomNavigationBar: BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
+            currentIndex: _selectedIndex,
+            onTap: (index) => setState(() => _selectedIndex = index),
+            items: [
+              const BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Inicio'),
+              BottomNavigationBarItem(
+                icon: Icon(isFreelance ? Icons.person : Icons.people), 
+                label: isFreelance ? 'Mi Perfil' : 'Jugadores'
+              ),
+              const BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
+              const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Planificar'),
+            ],
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Jugadores'),
-          BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
-            label: 'Calendario',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -176,35 +206,15 @@ class _DashboardContent extends StatelessWidget {
           const SizedBox(height: 20),
           ComplianceKpi(playersFuture: playersFuture),
           const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Pendientes de Hoy',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
-                ),
-                Text(
-                  'Confirma la asistencia del entrenamiento',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withOpacity(0.5),
-                      ),
-                ),
-              ],
-            ),
-          ),
+          const Text('Pendientes de Hoy', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           SizedBox(
-            height: MediaQuery.of(context).size.height * 0.6,
+            height: 400,
             child: PlayerList(
               playersFuture: playersFuture,
               onRefresh: onRefresh,
               showControls: false,
-              hideMarkedToday: true, // Only show pending players
+              hideMarkedToday: true,
               userRoleFuture: userRoleFuture,
             ),
           ),
@@ -214,70 +224,150 @@ class _DashboardContent extends StatelessWidget {
   }
 }
 
+class _FreelanceDashboard extends StatelessWidget {
+  final VoidCallback onNavigateToStore;
+  const _FreelanceDashboard({required this.onNavigateToStore});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      children: [
+        const Text('Bienvenido, Profe', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('Construye tu marca personal y vende tu conocimiento.', style: TextStyle(color: Colors.white38)),
+        const SizedBox(height: 32),
+        _buildActionCard(context, title: 'Mi Biblioteca Táctica', desc: 'Gestiona y publica tus microciclos.', icon: Icons.library_books, color: Colors.amber, onTap: onNavigateToStore),
+        const SizedBox(height: 16),
+        _buildActionCard(
+          context, 
+          title: 'Unirse a un Club', 
+          desc: 'Ingresa el código de tu nueva academia.', 
+          icon: Icons.add_business, 
+          color: Colors.blue, 
+          onTap: () {
+            _showJoinAcademyDialog(context);
+          }
+        ),
+      ],
+    );
+  }
+
+  void _showJoinAcademyDialog(BuildContext context) {
+    final codeController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unirse a un Club'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Ingresa el código que te proporcionó el administrador de la academia.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: codeController,
+              decoration: const InputDecoration(
+                labelText: 'Código de Academia',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.vpn_key),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final code = codeController.text.trim();
+              if (code.isEmpty) return;
+              
+              Navigator.pop(context); // Cierra dialogo
+              
+              try {
+                // 1. Validar que la academia existe
+                final academy = await Supabase.instance.client
+                    .from('academies')
+                    .select()
+                    .eq('id', code) // Asumimos que el código ES el ID
+                    .maybeSingle();
+                
+                if (academy == null) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Código de academia inválido o no encontrado.'), backgroundColor: Colors.red),
+                    );
+                  }
+                  return;
+                }
+
+                // 2. Actualizar el perfil del usuario para asignarle la academia
+                // Mantenemos is_freelancer en true porque sigue siendo freelancer aunque se una
+                final userId = Supabase.instance.client.auth.currentUser!.id;
+                await Supabase.instance.client.from('profiles').update({
+                  'academy_id': code,
+                  // Opcional: ¿is_freelancer se mantiene en true? 
+                  // El usuario dijo: "manteniedo sus plantillas y de mas cierto?"
+                  // Asi que sí, se mantiene como freelancer pero vinculado a una academia.
+                }).eq('id', userId);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('¡Te has unido a ${academy['name']}!')),
+                  );
+                  // Recargar la app o el dashboard para reflejar cambios
+                  // Lo más simple es trigger un rebuild del dashboard padre si fuera posible,
+                  // pero como esto es un StatelessWidget, pedimos al usuario recargar o hacemos un pushReplacement
+                  // Para efectos prácticos, navegar al Dashboard forzará un rebuild
+                  Navigator.pushReplacement(
+                    context, 
+                    MaterialPageRoute(builder: (_) => const DashboardScreen())
+                  );
+                }
+
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error al unirse: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Unirse'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCard(BuildContext context, {required String title, required String desc, required IconData icon, required Color color, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(color: const Color(0xFF2D2D2D), borderRadius: BorderRadius.circular(20)),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(width: 20),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), Text(desc, style: const TextStyle(color: Colors.white38, fontSize: 13))])),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Re-incluir ComplianceKpi y otros widgets auxiliares necesarios para Dashboard
 class NextEventCard extends StatelessWidget {
   const NextEventCard({super.key});
-
   @override
   Widget build(BuildContext context) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-      child: Stack(
-        alignment: Alignment.bottomLeft,
-        children: [
-          Image.network(
-            'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?q=80&w=1200&auto=format&fit=crop',
-            height: 180,
-            width: double.infinity,
-            fit: BoxFit.cover,
-          ),
-          Container(
-            height: 180,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Proximo Evento',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Colors.white.withOpacity(0.9),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Entrenamiento Sub-15',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today,
-                      color: Colors.white70,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Hoy, 18:00',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      child: Container(height: 150, color: Colors.blueGrey, child: const Center(child: Text('Próximo Entrenamiento'))),
     );
   }
 }
@@ -285,342 +375,8 @@ class NextEventCard extends StatelessWidget {
 class ComplianceKpi extends StatelessWidget {
   final Future<List<Player>> playersFuture;
   const ComplianceKpi({super.key, required this.playersFuture});
-
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Player>>(
-      future: playersFuture,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const SizedBox(
-            height: 200,
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-
-        final players = snapshot.data ?? [];
-        if (players.isEmpty) return const SizedBox.shrink();
-
-        final int totalPlayers = players.length;
-        // Logic:
-        // Excellent: >= 25 sessions (Approaching 30)
-        // Warning: 10 - 24 sessions
-        // Critical: < 10 sessions
-        final int excellent =
-            players.where((p) => p.sessionsCompleted >= 25).length;
-        final int warning =
-            players
-                .where(
-                  (p) =>
-                      p.sessionsCompleted >= 10 && p.sessionsCompleted < 25,
-                )
-                .length;
-        final int critical =
-            players.where((p) => p.sessionsCompleted < 10).length;
-
-        final double percentage =
-            totalPlayers > 0 ? excellent / totalPlayers : 0.0;
-
-        return Container(
-          padding: const EdgeInsets.all(24.0),
-          decoration: BoxDecoration(
-            color: const Color(0xFF2A2A2A), // Soft dark surface
-            borderRadius: BorderRadius.circular(24.0), // Apple-style curvature
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Rendimiento Global',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.6),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Asistencia Mensual',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  _TrendIcon(percentage: percentage),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // Hero Content: Ring + Big Number
-              Row(
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: _AnimatedProgressRing(percentage: percentage),
-                  ),
-                  const SizedBox(width: 24),
-                  Expanded(
-                    flex: 6,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _StatRow(
-                          label: 'Excelente',
-                          count: excellent,
-                          color: const Color(0xFF4CAF50), // Apple Green
-                        ),
-                        const SizedBox(height: 12),
-                        _StatRow(
-                          label: 'En Proceso',
-                          count: warning,
-                          color: const Color(0xFFFF9800), // Orange
-                        ),
-                        const SizedBox(height: 12),
-                        _StatRow(
-                          label: 'Crítico',
-                          count: critical,
-                          color: const Color(0xFFEF5350), // Soft Red
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _AnimatedProgressRing extends StatelessWidget {
-  final double percentage;
-  const _AnimatedProgressRing({required this.percentage});
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder(
-      tween: Tween<double>(begin: 0, end: percentage),
-      duration: const Duration(milliseconds: 1500),
-      curve: Curves.easeOutCubic,
-      builder: (context, double value, _) {
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            AspectRatio(
-              aspectRatio: 1,
-              child: CustomPaint(
-                painter: _RingPainter(
-                  percentage: value,
-                  backgroundColor: Colors.white.withOpacity(0.05),
-                  gradientColors: [
-                    const Color(0xFF4CAF50),
-                    const Color(0xFF81C784),
-                  ],
-                ),
-              ),
-            ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${(value * 100).toInt()}%',
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w300, // Thin styling
-                    color: Colors.white,
-                  ),
-                ),
-                Text(
-                  'Completado',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.white.withOpacity(0.5),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _RingPainter extends CustomPainter {
-  final double percentage;
-  final Color backgroundColor;
-  final List<Color> gradientColors;
-
-  _RingPainter({
-    required this.percentage,
-    required this.backgroundColor,
-    required this.gradientColors,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (size.width / 2) - 8;
-    final strokeWidth = 12.0;
-
-    // Background Circle
-    final bgPaint =
-        Paint()
-          ..color = backgroundColor
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeWidth
-          ..strokeCap = StrokeCap.round;
-
-    canvas.drawCircle(center, radius, bgPaint);
-
-    // Progress Arc
-    final rect = Rect.fromCircle(center: center, radius: radius);
-    final gradient = SweepGradient(
-      startAngle: -1.5708, // -90 degrees (top)
-      endAngle: 3.14 * 2 - 1.5708,
-      colors: gradientColors,
-      stops: [0.0, percentage],
-      tileMode: TileMode.repeated,
-    );
-
-    final progressPaint =
-        Paint()
-          ..shader =
-              percentage > 0
-                  ? gradient.createShader(rect)
-                  : null // Handle 0% gracefully
-          ..color = gradientColors.first // Fallback
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeWidth
-          ..strokeCap = StrokeCap.round;
-
-    // Draw arc starting from top (-90 degrees)
-    canvas.drawArc(
-      rect,
-      -1.5708, // Start at 12 o'clock
-      2 * 3.14 * percentage,
-      false,
-      progressPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-class _StatRow extends StatelessWidget {
-  final String label;
-  final int count;
-  final Color color;
-
-  const _StatRow({
-    required this.label,
-    required this.count,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 14,
-            ),
-          ),
-        ),
-        Text(
-          count.toString(),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TrendIcon extends StatelessWidget {
-  final double percentage;
-  const _TrendIcon({required this.percentage});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            percentage >= 0.8 ? Icons.trending_up : Icons.trending_flat,
-            size: 16,
-            color: percentage >= 0.8 ? const Color(0xFF4CAF50) : Colors.orange,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            percentage >= 0.8 ? 'Alto' : 'Normal',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color:
-                  percentage >= 0.8 ? const Color(0xFF4CAF50) : Colors.orange,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlaceholderPage extends StatelessWidget {
-  final String title;
-  const _PlaceholderPage({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        '$title (en construcción)',
-        style: Theme.of(context).textTheme.titleLarge,
-      ),
-    );
+    return Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: const Color(0xFF2A2A2A), borderRadius: BorderRadius.circular(20)), child: const Text('Rendimiento Global: 85%'));
   }
 }

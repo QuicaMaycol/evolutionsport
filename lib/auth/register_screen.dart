@@ -16,8 +16,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _academyNameController = TextEditingController();
 
   bool _isLoading = false;
+  bool _isFreelancer = false;
 
-  // Lógica inteligente: Si tocas un campo, limpia el otro para evitar conflictos
   void _onCodeChanged(String value) {
     if (value.isNotEmpty && _academyNameController.text.isNotEmpty) {
       _academyNameController.clear();
@@ -40,29 +40,52 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final academyCode = _academyCodeController.text.trim();
       final academyName = _academyNameController.text.trim();
 
-      // Validación simple
-      if (academyCode.isEmpty && academyName.isEmpty) {
+      if (!_isFreelancer && academyCode.isEmpty && academyName.isEmpty) {
         throw const AuthException(
-          'Debes ingresar un Código de Academia O el Nombre de tu nuevo Club.',
-          statusCode: '400',
+          'Debes ingresar un Código de Invitación O el Nombre de tu Marca/Club.',
         );
       }
 
       await Supabase.instance.client.auth.signUp(
         email: email,
         password: password,
+        emailRedirectTo: 'io.evolutionsport.app://login-callback',
         data: {
           'full_name': fullName,
-          'academy_code': academyCode, // Puede ir vacío
-          'academy_name': academyName, // Puede ir vacío
+          'academy_code': _isFreelancer ? null : academyCode,
+          'academy_name': _isFreelancer ? fullName : academyName,
+          'is_freelancer': _isFreelancer,
         },
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Registro exitoso. ¡Bienvenido!')),
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.mark_email_read, color: Colors.green),
+                SizedBox(width: 10),
+                Text('¡Registro Exitoso!'),
+              ],
+            ),
+            content: const Text(
+              'Hemos enviado un enlace de confirmación a tu correo electrónico.\n\n'
+              'Por favor, revisa tu bandeja de entrada (y spam) y confirma tu cuenta para poder iniciar sesión.',
+              style: TextStyle(fontSize: 16),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context); // Cierra dialogo
+                  Navigator.pop(context); // Vuelve al login
+                },
+                child: const Text('Entendido', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
         );
-        Navigator.pop(context);
       }
     } on AuthException catch (error) {
       if (mounted) {
@@ -107,99 +130,123 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. BLOQUES DE DECISIÓN (Ahora arriba)
-              // --- BLOQUE ENTRENADOR ---
+              // --- OPCIÓN FREELANCER ---
               Container(
-                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  color: _isFreelancer 
+                      ? Colors.green.withOpacity(0.1) 
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  border: _isFreelancer 
+                      ? Border.all(color: Colors.green.withOpacity(0.3)) 
+                      : null,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '¿Eres Entrenador?',
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Ingresa el código que te dio tu administrador.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _academyCodeController,
-                      onChanged: _onCodeChanged,
-                      decoration: const InputDecoration(
-                        labelText: 'Código de Academia',
-                        prefixIcon: Icon(Icons.vpn_key),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
+                child: SwitchListTile(
+                  title: const Text('Soy Entrenador Freelancer'),
+                  subtitle: const Text('Vende tus plantillas sin unirte a un club'),
+                  value: _isFreelancer,
+                  onChanged: (val) {
+                    setState(() {
+                      _isFreelancer = val;
+                      if (val) {
+                        _academyCodeController.clear();
+                        _academyNameController.clear();
+                      }
+                    });
+                  },
+                  activeColor: Colors.green,
                 ),
               ),
-
-              const SizedBox(height: 24),
-              const Row(children: [
-                Expanded(child: Divider()),
-                Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text("O")),
-                Expanded(child: Divider()),
-              ]),
               const SizedBox(height: 24),
 
-              // --- BLOQUE DUEÑO ---
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0D47A1)
-                      .withOpacity(0.2), // Azul oscuro suave
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '¿Eres Dueño de Academia?',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.blue,
+              if (!_isFreelancer) ...[
+                // --- BLOQUE ENTRENADOR CONTRATADO ---
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '¿Te uniste a un Club?',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Crea tu propio espacio. Ingresa el nombre de tu club.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _academyNameController,
-                      onChanged: _onNameChanged,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre del Club / Academia',
-                        prefixIcon: Icon(Icons.stadium),
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Ingresa el código que te dio tu administrador.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
                       ),
-                      textCapitalization: TextCapitalization.words,
-                    ),
-                  ],
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _academyCodeController,
+                        onChanged: _onCodeChanged,
+                        decoration: const InputDecoration(
+                          labelText: 'Código de Invitación',
+                          prefixIcon: Icon(Icons.vpn_key),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 32),
+                const SizedBox(height: 24),
+                const Row(children: [
+                  Expanded(child: Divider()),
+                  Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text("O")),
+                  Expanded(child: Divider()),
+                ]),
+                const SizedBox(height: 24),
+
+                // --- BLOQUE INDEPENDIENTE / DUEÑO ---
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D47A1).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '¿Eres Independiente o Dueño?',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Crea tu propia marca personal para gestionar tus tácticas.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _academyNameController,
+                        onChanged: _onNameChanged,
+                        decoration: const InputDecoration(
+                          labelText: 'Nombre de tu Marca / Club',
+                          prefixIcon: Icon(Icons.stadium),
+                          border: OutlineInputBorder(),
+                        ),
+                        textCapitalization: TextCapitalization.words,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
               
-              // 2. DATOS PERSONALES (Unificados visualmente)
               TextFormField(
                 controller: _fullNameController,
                 decoration: const InputDecoration(
-                  labelText: 'Nombre Completo',
+                  labelText: 'Tu Nombre Completo',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 textCapitalization: TextCapitalization.words,
@@ -228,8 +275,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 onPressed: _isLoading ? null : _signUp,
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Registrarse',
-                        style: TextStyle(fontSize: 18)),
+                    : const Text('Registrarse', style: TextStyle(fontSize: 18)),
               ),
             ],
           ),

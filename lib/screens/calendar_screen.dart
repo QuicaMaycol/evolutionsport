@@ -437,9 +437,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     keyboardType: TextInputType.number,
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
-                    labelText: 'Precio (\$)',
+                      labelText: r'Precio ($)',
                       labelStyle: TextStyle(color: Colors.grey),
-                      prefixText: '\$ ',
+                      prefixText: r'$ ',
                       prefixStyle: TextStyle(color: Colors.white),
                     ),
                   ),
