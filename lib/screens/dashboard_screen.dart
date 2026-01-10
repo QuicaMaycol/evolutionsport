@@ -17,16 +17,15 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   late Future<List<Player>> _playersFuture;
   late Future<Map<String, dynamic>> _profileDataFuture;
+  late Future<List<Map<String, dynamic>>> _myAcademiesFuture;
   int _selectedIndex = 0;
-
-  late Future<List<Map<String, dynamic>>> _myAcademiesFuture; // Para cargar el dropdown
 
   @override
   void initState() {
     super.initState();
     _playersFuture = _loadPlayers();
     _profileDataFuture = _getProfileData();
-    _myAcademiesFuture = _loadMyAcademies(); // Cargar la lista de academias
+    _myAcademiesFuture = _loadMyAcademies();
   }
 
   Future<List<Map<String, dynamic>>> _loadMyAcademies() async {
@@ -40,7 +39,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .eq('coach_id', user.id)
           .eq('is_active', true);
       
-      // Mapear respuesta a lista limpia
       return List<Map<String, dynamic>>.from(response.map((e) => {
         'id': e['academy_id'],
         'name': e['academies']['name'],
@@ -50,7 +48,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // Cambiar academia activa
   Future<void> _switchAcademy(String? newAcademyId) async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
@@ -58,14 +55,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       await Supabase.instance.client
           .from('profiles')
-          .update({'academy_id': newAcademyId}) // Si es null, vuelves a modo Freelancer
+          .update({'academy_id': newAcademyId})
           .eq('id', user.id);
       
-      // Recargar todo
       setState(() {
         _profileDataFuture = _getProfileData();
         _playersFuture = _loadPlayers();
-        _selectedIndex = 0; // Volver al inicio
+        _selectedIndex = 0;
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error cambiando de club: $e')));
@@ -96,13 +92,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .single();
       
       final academyId = profile['academy_id'];
-      if (academyId == null) return []; // Si es Freelance, lista vacía garantizada
+      if (academyId == null) return [];
 
-      // FILTRO ESTRICTO: Solo jugadores de MI academia
       final response = await Supabase.instance.client
           .from('players')
           .select('id, first_name, last_name, position, sessions_completed, last_attendance')
-          .eq('academy_id', academyId) // <--- CRUCIAL: Seguridad añadida
+          .eq('academy_id', academyId)
           .order('last_attendance', ascending: false);
       
       return (response as List)
@@ -129,14 +124,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         
         final role = profileSnapshot.data!['role'];
         final academyId = profileSnapshot.data!['academy_id'];
-        // Ahora se considera Freelancer si:
-        // 1. Tiene el flag 'is_freelancer' en TRUE en la base de datos
-        // 2. O, como respaldo, si no tiene academia asignada (antiguo comportamiento)
-        final isFreelancerFlag = profileSnapshot.data!['is_freelancer'] == true;
-        final isFreelance = isFreelancerFlag || academyId == null;
+        
+        // Lógica clave: Mostrar vista freelancer SOLO si no hay academia seleccionada
+        final isViewFreelance = academyId == null;
 
         final pages = <Widget>[
-          if (isFreelance)
+          if (isViewFreelance)
             _FreelanceDashboard(onNavigateToStore: () => setState(() => _selectedIndex = 1))
           else
             _DashboardContent(
@@ -145,7 +138,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               userRoleFuture: Future.value(role),
             ),
           
-          if (!isFreelance)
+          if (!isViewFreelance)
             PlayerList(
               playersFuture: _playersFuture,
               onRefresh: _refreshPlayers,
@@ -155,88 +148,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
           else
             const CoachProfileScreen(),
           
-          if (!isFreelance)
+          if (!isViewFreelance)
             const GroupsScreen(),
           const CalendarScreen(),
         ];
 
-          return Scaffold(
-            appBar: AppBar(
-              // Reemplazamos el título estático por un Dropdown dinámico si hay opciones
-              title: FutureBuilder<List<Map<String, dynamic>>>(
-                future: _myAcademiesFuture,
-                builder: (context, academiesSnapshot) {
-                  // Si no hay academias (solo freelance) o está cargando, mostramos título normal
-                  if (!academiesSnapshot.hasData || academiesSnapshot.data!.isEmpty) {
-                     return const Text('Evolution Sport');
-                  }
+        return Scaffold(
+          appBar: AppBar(
+            title: FutureBuilder<List<Map<String, dynamic>>>(
+              future: _myAcademiesFuture,
+              builder: (context, academiesSnapshot) {
+                if (!academiesSnapshot.hasData || academiesSnapshot.data!.isEmpty) {
+                   return const Text('Evolution Sport');
+                }
 
-                  final myAcademies = academiesSnapshot.data!;
-                  // Agregar opción "Modo Freelancer" a la lista
-                  final allOptions = [
-                    {'id': null, 'name': 'Modo Freelancer'},
-                    ...myAcademies
-                  ];
+                final myAcademies = academiesSnapshot.data!;
+                final allOptions = [
+                  {'id': null, 'name': 'Modo Freelancer'},
+                  ...myAcademies
+                ];
 
-                  return DropdownButtonHideUnderline(
-                    child: DropdownButton<String?>(
-                      value: academyId, // El valor actual seleccionado (puede ser null)
-                      dropdownColor: Theme.of(context).primaryColor,
-                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                      items: allOptions.map((academy) {
-                        return DropdownMenuItem<String?>(
-                          value: academy['id'] as String?,
-                          child: Text(
-                            academy['name'],
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (newValue) {
-                        if (newValue != academyId) {
-                          _switchAcademy(newValue);
-                        }
-                      },
-                    ),
-                  );
-                },
-              ),
-              actions: [
-              FutureBuilder<Map<String, dynamic>>(
-                future: _profileDataFuture,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const SizedBox.shrink();
-                  final role = snapshot.data!['role'];
-                  return Row(
-                    children: [
-                      if (role == 'admin')
-                        IconButton(
-                          icon: const Icon(Icons.people_outline),
-                          tooltip: 'Gestionar Equipo',
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const TeamManagementScreen()),
-                            );
-                          },
+                return DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    value: academyId,
+                    dropdownColor: Theme.of(context).primaryColor,
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+                    items: allOptions.map((academy) {
+                      return DropdownMenuItem<String?>(
+                        value: academy['id'] as String?,
+                        child: Text(
+                          academy['name'],
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
-                        child: Chip(
-                          label: Text(
-                            role == 'admin' ? 'ADMIN' : (isFreelance ? 'FREELANCE' : 'COACH'),
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-                          ),
-                          backgroundColor: role == 'admin' ? Colors.red.withOpacity(0.2) : Colors.green.withOpacity(0.2),
-                          side: BorderSide.none,
-                          padding: EdgeInsets.zero,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    ],
-                  );
-                },
+                      );
+                    }).toList(),
+                    onChanged: (newValue) {
+                      if (newValue != academyId) {
+                        _switchAcademy(newValue);
+                      }
+                    },
+                  ),
+                );
+              },
+            ),
+            actions: [
+              if (role == 'admin')
+                IconButton(
+                  icon: const Icon(Icons.people_outline),
+                  tooltip: 'Gestionar Equipo',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const TeamManagementScreen()),
+                    );
+                  },
+                ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Chip(
+                  label: Text(
+                    role == 'admin' ? 'ADMIN' : (isViewFreelance ? 'FREELANCE' : 'COACH'),
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                  backgroundColor: role == 'admin' ? Colors.red.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+                  side: BorderSide.none,
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                ),
               ),
               IconButton(
                 icon: const Icon(Icons.logout),
@@ -257,10 +236,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             items: [
               const BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Inicio'),
               BottomNavigationBarItem(
-                icon: Icon(isFreelance ? Icons.person : Icons.people), 
-                label: isFreelance ? 'Mi Perfil' : 'Jugadores'
+                icon: Icon(isViewFreelance ? Icons.person : Icons.people), 
+                label: isViewFreelance ? 'Mi Perfil' : 'Jugadores'
               ),
-              if (!isFreelance)
+              if (!isViewFreelance)
                 const BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
               const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Planificar'),
             ],
@@ -392,26 +371,32 @@ class _FreelanceDashboard extends StatelessWidget {
                       });
                       
                       try {
-                        // USAR RPC (Función Segura de Base de Datos)
-                        // Esto evita problemas de permisos RLS
-                        final response = await Supabase.instance.client
-                            .rpc('join_academy', params: {'academy_code': code});
+                        // 1. Validar código con RPC seguro
+                        final validation = await Supabase.instance.client
+                            .rpc('validate_academy_code', params: {'code_input': code});
                         
-                        final data = response as Map<String, dynamic>;
-                        final success = data['success'] as bool;
-                        final message = data['message'] as String?; // Mensaje de error si falla
-                        final academyName = data['academy_name'] as String?;
-
-                        if (!success) {
+                        final isValid = validation['valid'] as bool;
+                        
+                        if (!isValid) {
                           setState(() {
                             isProcessing = false;
-                            errorMessage = message ?? 'Error desconocido al unirse.';
+                            errorMessage = 'Código incorrecto. Academia no encontrada.';
                           });
                           return;
                         }
+                        
+                        final academyName = validation['name'] as String;
 
-                        // ÉXITO: Cambiar contexto localmente
+                        // 2. Insertar membresía
                         final userId = Supabase.instance.client.auth.currentUser!.id;
+                        await Supabase.instance.client.from('coach_academies').insert({
+                          'coach_id': userId,
+                          'academy_id': code,
+                          'role': 'coach',
+                          'is_active': true
+                        });
+
+                        // 3. Cambiar contexto
                         await Supabase.instance.client.from('profiles').update({
                           'academy_id': code,
                         }).eq('id', userId);
@@ -421,6 +406,7 @@ class _FreelanceDashboard extends StatelessWidget {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('¡Te has unido a $academyName!')),
                           );
+                          // Recargar dashboard completo
                           Navigator.pushReplacement(
                             context, 
                             MaterialPageRoute(builder: (_) => const DashboardScreen())
@@ -428,19 +414,25 @@ class _FreelanceDashboard extends StatelessWidget {
                         }
 
                       } catch (e) {
-                         // Mostrar error completo en un diálogo para poder leerlo
-                         showDialog(
-                           context: context,
-                           builder: (context) => AlertDialog(
-                             title: const Text('Error Detallado'),
-                             content: SingleChildScrollView(child: Text(e.toString())),
-                             actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
-                           ),
-                         );
-                         
+                         final errorMsg = e.toString();
+                         debugPrint('Error al unirse: $errorMsg');
+
                          setState(() {
                            isProcessing = false;
-                           errorMessage = 'Ver detalle en popup';
+                           if (errorMsg.contains('23505') || errorMsg.contains('duplicate key')) {
+                             errorMessage = '¡Ya eres miembro de esta academia!';
+                             // Intento de auto-corrección de contexto
+                             try {
+                                final userId = Supabase.instance.client.auth.currentUser!.id;
+                                Supabase.instance.client.from('profiles').update({'academy_id': code}).eq('id', userId);
+                                Future.delayed(Duration.zero, () {
+                                  Navigator.pop(context);
+                                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
+                                });
+                             } catch (_) {}
+                           } else {
+                             errorMessage = 'Error: $e';
+                           }
                          });
                       }
                     },
@@ -472,7 +464,6 @@ class _FreelanceDashboard extends StatelessWidget {
   }
 }
 
-// Re-incluir ComplianceKpi y otros widgets auxiliares necesarios para Dashboard
 class NextEventCard extends StatelessWidget {
   const NextEventCard({super.key});
   @override
