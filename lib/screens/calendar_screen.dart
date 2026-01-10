@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -254,7 +255,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _showImportDialog() async {
     List<Map<String, dynamic>> templates = [];
     try {
-      final response = await Supabase.instance.client.from('training_templates').select('id, name, description, is_premium');
+      // ACTUALIZADO: Usar tabla 'templates' y filtrar por tipo
+      final response = await Supabase.instance.client
+          .from('templates')
+          .select('id, title, description, is_for_sale, type, price');
       templates = List<Map<String, dynamic>>.from(response);
     } catch (e) {
       return;
@@ -274,38 +278,40 @@ class _CalendarScreenState extends State<CalendarScreen> {
           children: [
             const Text('Importar Plantilla', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
             const SizedBox(height: 8),
-            const Text('Aplica una estructura predefinida a esta semana.', style: TextStyle(color: Colors.grey)),
+            const Text('Aplica una estructura predefinida.', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 24),
-            // CORRECCIÓN AQUÍ: Estructura simple sin ifs complejos dentro de la lista
             if (templates.isEmpty)
               const Text('No hay plantillas disponibles.', style: TextStyle(color: Colors.white))
             else
-              Column(
-                children: templates.map((t) {
-                  final isPremium = t['is_premium'] == true;
-                  return ListTile(
-                    title: Row(
-                      children: [
-                        Text(t['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        if (isPremium) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.amber, borderRadius: BorderRadius.circular(4)),
-                            child: const Text('PRO', style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
-                          )
-                        ]
-                      ],
-                    ),
-                    subtitle: Text(t['description'] ?? '', style: const TextStyle(color: Colors.white70)),
-                    trailing: const Icon(Icons.chevron_right, color: Color(0xFF4CAF50)),
-                    contentPadding: EdgeInsets.zero,
-                    onTap: () {
-                      Navigator.pop(context);
-                      _applyTemplate(t['id']);
-                    },
-                  );
-                }).toList(),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: templates.length,
+                  separatorBuilder: (_, __) => const Divider(color: Colors.white10),
+                  itemBuilder: (context, index) {
+                    final t = templates[index];
+                    final isPremium = t['is_for_sale'] == true;
+                    return ListTile(
+                      title: Row(
+                        children: [
+                          Expanded(child: Text(t['title'] ?? 'Sin Título', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                          if (isPremium)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(color: Colors.amber, borderRadius: BorderRadius.circular(4)),
+                              child: Text('\$${t['price']}', style: const TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
+                            )
+                        ],
+                      ),
+                      subtitle: Text('${t['type']} • ${t['description'] ?? ''}', style: const TextStyle(color: Colors.white70)),
+                      trailing: const Icon(Icons.download, color: Color(0xFF4CAF50)),
+                      contentPadding: EdgeInsets.zero,
+                      onTap: () {
+                        Navigator.pop(context);
+                        _applyTemplate(t['id']);
+                      },
+                    );
+                  },
+                ),
               ),
           ],
         ),
@@ -319,78 +325,96 @@ class _CalendarScreenState extends State<CalendarScreen> {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       final profile = await Supabase.instance.client.from('profiles').select('academy_id').eq('id', user!.id).single();
-      final teamResp = await Supabase.instance.client.from('teams').select('id, name').eq('academy_id', profile['academy_id']);
-      teams = List<Map<String, dynamic>>.from(teamResp);
+      // Si es freelancer sin academia, quizas no tenga equipos, manejar eso?
+      // Por ahora asumimos logica de club
+      if (profile['academy_id'] != null) {
+        final teamResp = await Supabase.instance.client.from('teams').select('id, name').eq('academy_id', profile['academy_id']);
+        teams = List<Map<String, dynamic>>.from(teamResp);
+      }
     } catch (e) {}
 
-    if (teams.isEmpty) {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Crea primero un grupo de entrenamiento.')));
-        return;
-    }
-
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2D2D2D),
-        title: const Text('¿A qué grupo?', style: TextStyle(color: Colors.white)),
-        content: DropdownButtonFormField<String>(
-          dropdownColor: const Color(0xFF333333),
-          items: teams.map<DropdownMenuItem<String>>((t) => DropdownMenuItem<String>(value: t['id'], child: Text(t['name'], style: const TextStyle(color: Colors.white)))).toList(),
-          onChanged: (val) => selectedTeamId = val,
-          hint: const Text('Seleccionar Equipo', style: TextStyle(color: Colors.white70)),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          TextButton(
-            onPressed: () async {
-              if (selectedTeamId != null) {
-                Navigator.pop(context);
-                _processImport(templateId, selectedTeamId!);
-              }
-            },
-            child: const Text('Aplicar', style: TextStyle(color: Color(0xFF4CAF50))),
+    // Permitir aplicar sin equipo (generales) o requerir equipo
+    // Para simplificar, si no hay equipos, aplicamos sin team_id (null)
+    
+    if (teams.isNotEmpty) {
+       await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF2D2D2D),
+          title: const Text('¿A qué grupo?', style: TextStyle(color: Colors.white)),
+          content: DropdownButtonFormField<String>(
+            dropdownColor: const Color(0xFF333333),
+            items: teams.map<DropdownMenuItem<String>>((t) => DropdownMenuItem<String>(value: t['id'], child: Text(t['name'], style: const TextStyle(color: Colors.white)))).toList(),
+            onChanged: (val) => selectedTeamId = val,
+            hint: const Text('Seleccionar Equipo', style: TextStyle(color: Colors.white70)),
           ),
-        ],
-      ),
-    );
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _processImport(templateId, selectedTeamId);
+              },
+              child: const Text('Aplicar', style: TextStyle(color: Color(0xFF4CAF50))),
+            ),
+          ],
+        ),
+      );
+    } else {
+      _processImport(templateId, null);
+    }
   }
 
-  Future<void> _processImport(String templateId, String teamId) async {
+  Future<void> _processImport(String templateId, String? teamId) async {
     setState(() => _isLoading = true);
     try {
-      final itemsResp = await Supabase.instance.client.from('template_items').select().eq('template_id', templateId);
-      final items = List<Map<String, dynamic>>.from(itemsResp);
+      // 1. Obtener contenido JSON de la plantilla
+      final tpl = await Supabase.instance.client
+          .from('templates')
+          .select('content, type')
+          .eq('id', templateId)
+          .single();
+      
+      final content = tpl['content'];
+      if (content == null || content is! List) {
+        throw Exception("La plantilla está vacía o tiene formato inválido.");
+      }
 
-      final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+      final startOfRange = _selectedDate; // Aplicar a partir de la fecha seleccionada
+      
       final user = Supabase.instance.client.auth.currentUser;
       final profile = await Supabase.instance.client.from('profiles').select('academy_id').eq('id', user!.id).single();
 
-      for (var item in items) {
+      // 2. Iterar e insertar
+      for (var item in content) {
         final dayOffset = item['day_offset'] as int;
-        final targetDate = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day).add(Duration(days: dayOffset));
-        final timeStr = item['start_hour'] as String;
+        final targetDate = startOfRange.add(Duration(days: dayOffset));
+        
+        final timeStr = item['start_hour'] as String; // "08:00"
         final timeParts = timeStr.split(':');
         final startTime = DateTime(targetDate.year, targetDate.month, targetDate.day, int.parse(timeParts[0]), int.parse(timeParts[1]));
+        
+        final duration = item['duration_minutes'] as int? ?? 90;
 
         await Supabase.instance.client.from('events').insert({
           'title': item['title'],
           'session_type': item['session_type'],
           'rpe': item['rpe'],
           'team_id': teamId,
-          'academy_id': profile['academy_id'],
+          'academy_id': profile['academy_id'], // Puede ser null si es freelancer puro
           'start_time': startTime.toIso8601String(),
-          'end_time': startTime.add(Duration(minutes: item['duration_minutes'] ?? 90)).toIso8601String(),
+          'end_time': startTime.add(Duration(minutes: duration)).toIso8601String(),
         });
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Semana planificada con éxito 🚀')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plantilla cargada exitosamente 🚀')));
       }
       _loadEvents();
 
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al importar: $e')));
+    } finally {
       setState(() => _isLoading = false);
     }
   }
@@ -399,116 +423,230 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     final priceCtrl = TextEditingController(text: '0.00');
+    
+    // Fecha base para el guardado (por defecto la seleccionada en calendario)
+    DateTime baseDate = _selectedDate;
+    
     bool isMarketplace = false;
+    String selectedType = 'microcycle'; // Default
 
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          backgroundColor: const Color(0xFF2D2D2D),
-          title: const Text('Guardar Semana', style: TextStyle(color: Colors.white)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Nombre de la Plantilla', labelStyle: TextStyle(color: Colors.grey)),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: descCtrl,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Descripción', labelStyle: TextStyle(color: Colors.grey)),
-                ),
-                const SizedBox(height: 24),
-                SwitchListTile(
-                  title: const Text('Publicar en Mercado', style: TextStyle(color: Colors.white)),
-                  subtitle: const Text('Véndela a otros entrenadores', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  value: isMarketplace,
-                  activeColor: const Color(0xFF4CAF50),
-                  contentPadding: EdgeInsets.zero,
-                  onChanged: (val) => setState(() => isMarketplace = val),
-                ),
-                if (isMarketplace)
+        builder: (context, setState) {
+          // Calcular texto del rango para mostrar al usuario
+          String rangeText = '';
+          if (selectedType == 'session') {
+            rangeText = DateFormat.yMMMMd('es_ES').format(baseDate);
+          } else if (selectedType == 'microcycle') {
+            final start = baseDate.subtract(Duration(days: baseDate.weekday - 1));
+            final end = start.add(const Duration(days: 6));
+            final f = DateFormat.MMMd('es_ES');
+            rangeText = "${f.format(start)} - ${f.format(end)}";
+          } else if (selectedType == 'mesocycle') {
+            rangeText = DateFormat.yMMMM('es_ES').format(baseDate);
+          } else if (selectedType == 'season') {
+            rangeText = "Año ${baseDate.year}";
+          }
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2D2D2D),
+            title: const Text('Guardar Plantilla', style: TextStyle(color: Colors.white)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Configuración', style: TextStyle(color: Color(0xFF4CAF50), fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
                   TextField(
-                    controller: priceCtrl,
-                    keyboardType: TextInputType.number,
+                    controller: nameCtrl,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: r'Precio ($)',
-                      labelStyle: TextStyle(color: Colors.grey),
-                      prefixText: r'$ ',
-                      prefixStyle: TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'Nombre de la Plantilla', labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: selectedType,
+                    dropdownColor: const Color(0xFF333333),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'Tipo de Periodo', labelStyle: TextStyle(color: Colors.grey)),
+                    items: const [
+                      DropdownMenuItem(value: 'session', child: Text('Sesión (1 Día)')),
+                      DropdownMenuItem(value: 'microcycle', child: Text('Microciclo (1 Semana)')),
+                      DropdownMenuItem(value: 'mesocycle', child: Text('Mesociclo (1 Mes)')),
+                      DropdownMenuItem(value: 'season', child: Text('Temporada (1 Año)')),
+                    ],
+                    onChanged: (val) => setState(() => selectedType = val!),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Selector de Fecha Base
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: baseDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                        builder: (context, child) {
+                          return Theme(
+                            data: ThemeData.dark().copyWith(
+                              colorScheme: const ColorScheme.dark(
+                                primary: Color(0xFF4CAF50),
+                                onPrimary: Colors.white,
+                                surface: Color(0xFF2D2D2D),
+                                onSurface: Colors.white,
+                              ),
+                            ),
+                            child: child!,
+                          );
+                        },
+                      );
+                      if (picked != null) {
+                        setState(() => baseDate = picked);
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Fecha de Origen',
+                        labelStyle: TextStyle(color: Colors.grey),
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.calendar_today, color: Colors.white70),
+                      ),
+                      child: Text(
+                        rangeText,
+                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                      ),
                     ),
                   ),
-              ],
+                  
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: descCtrl,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'Descripción', labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(height: 24),
+                  const Divider(color: Colors.white24),
+                  SwitchListTile(
+                    title: const Text('Vender en Marketplace', style: TextStyle(color: Colors.white)),
+                    subtitle: const Text('Disponible para otros usuarios', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    value: isMarketplace,
+                    activeColor: const Color(0xFF4CAF50),
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (val) => setState(() => isMarketplace = val),
+                  ),
+                  if (isMarketplace)
+                    TextField(
+                      controller: priceCtrl,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: r'Precio ($)',
+                        labelStyle: TextStyle(color: Colors.grey),
+                        prefixText: r'$ ',
+                        prefixStyle: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-            ),
-            TextButton(
-              onPressed: () async {
-                if (nameCtrl.text.isEmpty) return;
-                Navigator.pop(context);
-                _processSaveTemplate(
-                  nameCtrl.text,
-                  descCtrl.text,
-                  isMarketplace,
-                  double.tryParse(priceCtrl.text) ?? 0.0,
-                );
-              },
-              child: const Text('Guardar', style: TextStyle(color: Color(0xFF4CAF50))),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+              ),
+              TextButton(
+                onPressed: () async {
+                  if (nameCtrl.text.isEmpty) return;
+                  Navigator.pop(context);
+                  _processSaveTemplate(
+                    nameCtrl.text,
+                    descCtrl.text,
+                    isMarketplace,
+                    double.tryParse(priceCtrl.text) ?? 0.0,
+                    selectedType,
+                    baseDate, // Pasamos la fecha elegida
+                  );
+                },
+                child: const Text('Guardar', style: TextStyle(color: Color(0xFF4CAF50))),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Future<void> _processSaveTemplate(String name, String desc, bool isPublic, double price) async {
+  Future<void> _processSaveTemplate(String name, String desc, bool isPublic, double price, String type, DateTime originDate) async {
     setState(() => _isLoading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('profiles').select('id').eq('id', user!.id).single();
+      // 1. Determinar Rango de Fechas basado en 'type' y 'originDate'
+      DateTime startRange;
+      DateTime endRange;
 
-      final tplResp = await Supabase.instance.client.from('training_templates').insert({
-        'name': name,
-        'description': desc,
-        'is_global': false, 
-        'is_marketplace': isPublic,
-        'price': isPublic ? price : 0.0,
-        'owner_id': profile['id'],
-      }).select().single();
+      if (type == 'session') {
+        startRange = DateTime(originDate.year, originDate.month, originDate.day);
+        endRange = startRange.add(const Duration(days: 1)).subtract(const Duration(seconds: 1));
+      } else if (type == 'microcycle') {
+        // Semana completa (Lunes a Domingo) de la fecha elegida
+        startRange = originDate.subtract(Duration(days: originDate.weekday - 1));
+        startRange = DateTime(startRange.year, startRange.month, startRange.day);
+        endRange = startRange.add(const Duration(days: 7)).subtract(const Duration(seconds: 1));
+      } else if (type == 'mesocycle') {
+        // Mes completo de la fecha elegida
+        startRange = DateTime(originDate.year, originDate.month, 1);
+        endRange = DateTime(originDate.year, originDate.month + 1, 0, 23, 59, 59);
+      } else if (type == 'season') {
+        // Año completo
+        startRange = DateTime(originDate.year, 1, 1);
+        endRange = DateTime(originDate.year, 12, 31, 23, 59, 59);
+      } else {
+        startRange = originDate;
+        endRange = originDate.add(const Duration(days: 7));
+      }
+
+      final profile = await Supabase.instance.client.from('profiles').select('academy_id').eq('id', user!.id).single();
+      final academyId = profile['academy_id'];
+
+      // 2. Fetch Eventos reales de la BD para ese rango
+      // IMPORTANTE: Consultamos la BD para tener todos los datos, incluso si la vista actual no los muestra
+      final eventsResp = await Supabase.instance.client
+          .from('events')
+          .select('*')
+          .eq('academy_id', academyId) // Filtrar por academia actual (o null si freelance)
+          .gte('start_time', startRange.toIso8601String())
+          .lte('start_time', endRange.toIso8601String());
       
-      final templateId = tplResp['id'];
-
-      final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
-      final endOfWeek = startOfWeek.add(const Duration(days: 7));
-
-      final eventsToSave = _events.where((e) {
-        final date = DateTime.parse(e['start_time']);
-        return date.isAfter(startOfWeek.subtract(const Duration(seconds: 1))) && 
-               date.isBefore(endOfWeek);
-      }).toList();
+      final eventsToSave = List<Map<String, dynamic>>.from(eventsResp);
 
       if (eventsToSave.isEmpty) {
-        throw Exception("No hay eventos en esta semana para guardar.");
+        throw Exception("No hay sesiones planificadas en el periodo seleccionado ($type).");
       }
+
+      // 3. Serializar a JSON (Relative Format)
+      final List<Map<String, dynamic>> jsonContent = [];
 
       for (var e in eventsToSave) {
         final eDate = DateTime.parse(e['start_time']);
-        final offset = eDate.weekday - 1; 
-        final duration = DateTime.parse(e['end_time']).difference(eDate).inMinutes;
+        
+        // Calcular offset relativo al inicio del rango
+        // Para sesión: offset 0 (o la hora)
+        // Para semana: 0-6
+        // Para mes: 0-30
+        final diff = eDate.difference(startRange);
+        final dayOffset = diff.inDays;
+        
+        // Hora de inicio string
         final timeStr = "${eDate.hour.toString().padLeft(2,'0')}:${eDate.minute.toString().padLeft(2,'0')}";
+        
+        // Duración
+        final endDate = DateTime.parse(e['end_time']);
+        final duration = endDate.difference(eDate).inMinutes;
 
-        await Supabase.instance.client.from('template_items').insert({
-          'template_id': templateId,
-          'day_offset': offset,
+        jsonContent.add({
+          'day_offset': dayOffset,
           'title': e['title'],
           'session_type': e['session_type'],
           'rpe': e['rpe'],
@@ -517,8 +655,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
         });
       }
 
+      // 4. Insertar en tabla 'templates' (JSONB)
+      await Supabase.instance.client.from('templates').insert({
+        'title': name, // Ojo: campo se llama 'title' en nueva tabla, antes 'name'
+        'description': desc,
+        'type': type,
+        'is_for_sale': isPublic,
+        'price': isPublic ? price : 0.0,
+        'creator_id': user.id, // Usamos creator_id, no owner_id
+        'content': jsonContent, // JSONB magico
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plantilla guardada y lista para usar 💾')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plantilla guardada en tu Biblioteca 📚')));
       }
 
     } catch (e) {
@@ -565,7 +715,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ],
                     ),
                     Text(
-                      "${_getMonthName(_selectedDate.month)} ${_selectedDate.year}",
+                      _getMonthName(_selectedDate),
                       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -909,13 +1059,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   String _getWeekDay(int day) {
-    const days = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
-    return days[day - 1];
+    // Usamos una fecha ficticia que sabemos que es Lunes (ej. 2024-01-01)
+    // y le sumamos (day - 1) para obtener el nombre correcto
+    final date = DateTime(2024, 1, 1).add(Duration(days: day - 1));
+    return DateFormat.E('es_ES').format(date);
   }
 
-  String _getMonthName(int month) {
-    const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    return months[month - 1];
+  String _getMonthName(DateTime date) {
+    return DateFormat.yMMMM('es_ES').format(date); // Ej: "Enero 2026"
   }
 }
 

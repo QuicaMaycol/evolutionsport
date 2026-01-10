@@ -6,6 +6,7 @@ import 'team_management_screen.dart';
 import 'groups_screen.dart';
 import 'calendar_screen.dart';
 import 'coach_profile_screen.dart';
+import 'template_library_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -130,7 +131,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         final pages = <Widget>[
           if (isViewFreelance)
-            _FreelanceDashboard(onNavigateToStore: () => setState(() => _selectedIndex = 1))
+            _FreelanceDashboard(
+              onNavigateToStore: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const TemplateLibraryScreen()),
+                );
+              },
+            )
           else
             _DashboardContent(
               playersFuture: _playersFuture,
@@ -164,9 +172,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 final myAcademies = academiesSnapshot.data!;
                 final allOptions = [
-                  {'id': null, 'name': 'Modo Freelancer'},
+                  if (role == 'coach') {'id': null, 'name': 'Modo Freelancer'},
                   ...myAcademies
                 ];
+
+                if (allOptions.length <= 1) {
+                  return Text(
+                    allOptions.isNotEmpty ? (allOptions[0]['name'] ?? 'Evolution Sport') : 'Evolution Sport',
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  );
+                }
 
                 return DropdownButtonHideUnderline(
                   child: DropdownButton<String?>(
@@ -178,7 +193,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       return DropdownMenuItem<String?>(
                         value: academy['id'] as String?,
                         child: Text(
-                          academy['name'],
+                          academy['name'] ?? '',
                           overflow: TextOverflow.ellipsis,
                         ),
                       );

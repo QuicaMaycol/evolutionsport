@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_localizations/flutter_localizations.dart'; // Importar
 import 'auth/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/super_admin_dashboard.dart';
@@ -30,6 +31,19 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Academia de Futbol',
       debugShowCheckedModeBanner: false,
+      // Configuración de localización
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('es', 'ES'), // Español como principal
+        Locale('en', 'US'),
+      ],
+      // Forzar español o usar el del sistema si es compatible
+      locale: const Locale('es', 'ES'), 
+      
       theme: ThemeData(
         brightness: Brightness.dark,
         primaryColor: const Color(0xFF4CAF50),

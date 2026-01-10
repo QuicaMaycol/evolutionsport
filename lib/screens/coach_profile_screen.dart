@@ -34,10 +34,12 @@ class _CoachProfileScreenState extends State<CoachProfileScreen> {
           .single();
 
       // 2. Cargar Mis Plantillas (Las que yo creé)
+      // Ajustamos nombre de tabla 'templates' (antes buscaba training_templates)
+      // y 'creator_id' (antes owner_id)
       final templatesResponse = await Supabase.instance.client
-          .from('training_templates')
+          .from('templates') 
           .select('*')
-          .eq('owner_id', targetId);
+          .eq('creator_id', targetId);
 
       if (mounted) {
         setState(() {
@@ -130,10 +132,16 @@ class _CoachProfileScreenState extends State<CoachProfileScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _StatItem(label: 'Plantillas', value: _myTemplates.length.toString()),
-          const VerticalDivider(color: Colors.white10),
-          _StatItem(label: 'Impacto RPE', value: '+12%', color: Colors.green), // Simulado
-          const VerticalDivider(color: Colors.white10),
-          _StatItem(label: 'Ventas', value: '42'), // Simulado
+          const SizedBox(
+            height: 30,
+            child: VerticalDivider(color: Colors.white10),
+          ),
+          _StatItem(label: 'Impacto RPE', value: 'N/A', color: Colors.grey),
+          const SizedBox(
+            height: 30,
+            child: VerticalDivider(color: Colors.white10),
+          ),
+          _StatItem(label: 'Ventas', value: '0'),
         ],
       ),
     );
@@ -167,7 +175,7 @@ class _CoachProfileScreenState extends State<CoachProfileScreen> {
       itemCount: _myTemplates.length,
       itemBuilder: (context, index) {
         final t = _myTemplates[index];
-        final isPublic = t['is_marketplace'] == true;
+        final isPublic = t['is_for_sale'] == true;
         
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -179,8 +187,8 @@ class _CoachProfileScreenState extends State<CoachProfileScreen> {
           child: ListTile(
             contentPadding: const EdgeInsets.all(16),
             leading: Icon(isPublic ? Icons.storefront : Icons.lock_outline, color: isPublic ? Colors.amber : Colors.white24),
-            title: Text(t['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(isPublic ? 'Publicado - \$${t['price']}' : 'Privado', style: TextStyle(color: Colors.white38, fontSize: 12)),
+            title: Text(t['title'] ?? 'Sin Título', style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(isPublic ? 'Publicado - \$${t['price']}' : 'Privado', style: const TextStyle(color: Colors.white38, fontSize: 12)),
             trailing: const Icon(Icons.chevron_right, color: Colors.white10),
           ),
         );
