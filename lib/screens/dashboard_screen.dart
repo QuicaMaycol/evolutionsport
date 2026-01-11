@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 import '../models/player.dart';
 import '../widgets/player_list.dart';
 import 'team_management_screen.dart';
@@ -8,6 +9,7 @@ import 'calendar_screen.dart';
 import 'coach_profile_screen.dart';
 import 'template_library_screen.dart';
 import 'drills_library_screen.dart';
+import 'player_evaluation_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -72,11 +74,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<Map<String, dynamic>> _getProfileData() async {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return {'role': 'coach', 'academy_id': null, 'is_freelancer': false};
+    if (user == null) return {'role': 'coach', 'academy_id': null, 'is_freelancer': false, 'full_name': 'Entrenador'};
     
     final response = await Supabase.instance.client
         .from('profiles')
-        .select('role, academy_id, is_freelancer')
+        .select('full_name, role, academy_id, is_freelancer')
         .eq('id', user.id)
         .single();
     return Map<String, dynamic>.from(response);
@@ -126,6 +128,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         
         final role = profileSnapshot.data!['role'];
         final academyId = profileSnapshot.data!['academy_id'];
+        final fullName = profileSnapshot.data!['full_name'] ?? 'Profe';
         
         // Lógica clave: Mostrar vista freelancer SOLO si no hay academia seleccionada
         final isViewFreelance = academyId == null;
@@ -133,6 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final pages = <Widget>[
           if (isViewFreelance)
             _FreelanceDashboard(
+              fullName: fullName,
               onNavigateToStore: () {
                 Navigator.push(
                   context,
@@ -142,6 +146,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             )
           else
             _DashboardContent(
+              fullName: fullName,
               playersFuture: _playersFuture,
               onRefresh: _refreshPlayers,
               userRoleFuture: Future.value(role),
@@ -284,11 +289,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 }
 
 class _DashboardContent extends StatelessWidget {
+  final String fullName;
   final Future<List<Player>> playersFuture;
   final Future<void> Function() onRefresh;
   final Future<String> userRoleFuture;
 
   const _DashboardContent({
+    required this.fullName,
     required this.playersFuture,
     required this.onRefresh,
     required this.userRoleFuture,
@@ -301,40 +308,54 @@ class _DashboardContent extends StatelessWidget {
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          const NextEventCard(),
-          const SizedBox(height: 20),
-          ComplianceKpi(playersFuture: playersFuture),
+          _WelcomeHeader(fullName: fullName),
           const SizedBox(height: 24),
-          const Text('Herramientas Técnicas', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          _ActivityRings(),
+          const SizedBox(height: 24),
+          SmartStatusCard(playersFuture: playersFuture),
+          const SizedBox(height: 24),
+          const Text('Herramientas Técnicas', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+          const SizedBox(height: 16),
           Row(
             children: [
               Expanded(
                 child: _QuickActionCard(
-                  title: 'Banco de Ejercicios',
-                  icon: Icons.fitness_center,
-                  color: Colors.green,
+                  title: 'Evaluar Desempeño',
+                  icon: Icons.analytics,
+                  color: const Color(0xFF64B5F6),
                   onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const DrillsLibraryScreen()));
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const PlayerEvaluationScreen()),
+                    );
                   },
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: _QuickActionCard(
-                  title: 'Biblioteca Táctica',
-                  icon: Icons.library_books,
-                  color: Colors.amber,
+                  title: 'Banco de Ejercicios',
+                  icon: Icons.fitness_center,
+                  color: const Color(0xFF4CAF50),
                   onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const TemplateLibraryScreen()));
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const DrillsLibraryScreen()));
                   },
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
-          const Text('Pendientes de Hoy', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+          _QuickActionCard(
+            title: 'Biblioteca Táctica',
+            icon: Icons.library_books,
+            color: const Color(0xFFFFC107),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const TemplateLibraryScreen()));
+            },
+          ),
+          const SizedBox(height: 32),
+          const Text('Pendientes de Hoy', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+          const SizedBox(height: 16),
           SizedBox(
             height: 400,
             child: PlayerList(
@@ -350,6 +371,87 @@ class _DashboardContent extends StatelessWidget {
     );
   }
 }
+
+class _WelcomeHeader extends StatelessWidget {
+  final String fullName;
+  const _WelcomeHeader({required this.fullName});
+
+  @override
+  Widget build(BuildContext context) {
+    final firstName = fullName.split(' ')[0];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Hola, $firstName 👋',
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Tu academia está lista para la acción hoy.',
+          style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.5)),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivityRings extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2A2A),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _RingItem(label: 'Asistencia', value: '85%', color: Colors.green),
+          _RingItem(label: 'Progreso', value: '60%', color: Colors.blue),
+          _RingItem(label: 'Carga RPE', value: '7.2', color: Colors.orange),
+        ],
+      ),
+    );
+  }
+}
+
+class _RingItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _RingItem({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: 50,
+              height: 50,
+              child: CircularProgressIndicator(
+                value: 0.7, // Placeholder logic
+                strokeWidth: 6,
+                backgroundColor: color.withOpacity(0.1),
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+                strokeCap: StrokeCap.round,
+              ),
+            ),
+            Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(label, style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.5))),
+      ],
+    );
+  }
+}
+
 
 class _QuickActionCard extends StatelessWidget {
   final String title;
@@ -397,16 +499,16 @@ class _QuickActionCard extends StatelessWidget {
 }
 
 class _FreelanceDashboard extends StatelessWidget {
+  final String fullName;
   final VoidCallback onNavigateToStore;
-  const _FreelanceDashboard({required this.onNavigateToStore});
+  const _FreelanceDashboard({required this.fullName, required this.onNavigateToStore});
 
   @override
   Widget build(BuildContext context) {
+    final firstName = fullName.split(' ')[0];
     return ListView(
       children: [
-        const Text('Bienvenido, Profe', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text('Construye tu marca personal y vende tu conocimiento.', style: TextStyle(color: Colors.white38)),
+        _WelcomeHeader(fullName: fullName),
         const SizedBox(height: 32),
         _buildActionCard(context, title: 'Mi Biblioteca Táctica', desc: 'Gestiona y publica tus microciclos.', icon: Icons.library_books, color: Colors.amber, onTap: onNavigateToStore),
         const SizedBox(height: 16),
@@ -581,14 +683,178 @@ class _FreelanceDashboard extends StatelessWidget {
   }
 }
 
+class SmartStatusCard extends StatelessWidget {
+  final Future<List<Player>> playersFuture;
+
+  const SmartStatusCard({super.key, required this.playersFuture});
+
+  Future<Map<String, dynamic>> _getDashboardData() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return {};
+
+    final profile = await Supabase.instance.client
+        .from('profiles')
+        .select('academy_id')
+        .eq('id', user.id)
+        .single();
+    
+    final academyId = profile['academy_id'];
+
+    // 1. Calcular Carga RPE Semanal
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+
+    final eventsResp = await Supabase.instance.client
+        .from('events')
+        .select('rpe')
+        .eq('academy_id', academyId)
+        .gte('start_time', startOfWeek.toIso8601String())
+        .lte('start_time', endOfWeek.toIso8601String());
+
+    double avgRpe = 0;
+    if (eventsResp.isNotEmpty) {
+      final totalRpe = (eventsResp as List).fold<int>(0, (sum, item) => sum + (item['rpe'] as int? ?? 0));
+      avgRpe = totalRpe / eventsResp.length;
+    }
+
+    return {
+      'avgRpe': avgRpe,
+      'eventsCount': eventsResp.length,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Player>>(
+      future: playersFuture,
+      builder: (context, playersSnapshot) {
+        return FutureBuilder<Map<String, dynamic>>(
+          future: _getDashboardData(),
+          builder: (context, dataSnapshot) {
+            final players = playersSnapshot.data ?? [];
+            final data = dataSnapshot.data ?? {'avgRpe': 0.0, 'eventsCount': 0};
+
+            // Lógica de Alertas
+            final today = DateTime.now();
+            final birthdays = players.where((p) => p.birthDate != null && p.birthDate!.day == today.day && p.birthDate!.month == today.month).toList();
+
+            final avgRpe = data['avgRpe'] as double;
+            final intensityColor = avgRpe >= 7 ? Colors.redAccent : (avgRpe >= 4 ? Colors.orangeAccent : Colors.blueAccent);
+
+            return Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [const Color(0xFF2A2A2A), const Color(0xFF1A1A1A)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  children: [
+                    // Sección Alertas (Izquierda)
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Alertas de Hoy',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white38, letterSpacing: 1),
+                          ),
+                          const SizedBox(height: 16),
+                          if (birthdays.isEmpty)
+                            const Text('Todo bajo control ✨', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                          
+                          if (birthdays.isNotEmpty)
+                            _StatusItem(
+                              icon: Icons.cake,
+                              color: Colors.pinkAccent,
+                              text: 'Cumple de ${birthdays.first.firstName}',
+                            ),
+                        ],
+                      ),
+                    ),
+                    
+                    VerticalDivider(color: Colors.white.withOpacity(0.1), thickness: 1, indent: 8, endIndent: 8),
+                    
+                    // Sección Pulso/RPE (Derecha)
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            'PULSO SEMANAL',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white24),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            avgRpe.toStringAsFixed(1),
+                            style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: intensityColor, letterSpacing: -2),
+                          ),
+                          Text(
+                            avgRpe >= 7 ? 'Carga Alta' : (avgRpe >= 4 ? 'Óptimo' : 'Recuperación'),
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: intensityColor.withOpacity(0.8)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _StatusItem extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String text;
+
+  const _StatusItem({required this.icon, required this.color, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class NextEventCard extends StatelessWidget {
   const NextEventCard({super.key});
   @override
   Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Container(height: 150, color: Colors.blueGrey, child: const Center(child: Text('Próximo Entrenamiento'))),
-    );
+    return const SizedBox.shrink(); // Obsoleto, reemplazado por SmartStatusCard
   }
 }
 

@@ -5,6 +5,8 @@ class Player {
   final String position;
   final int sessionsCompleted;
   final DateTime lastAttendance;
+  final DateTime? birthDate;
+  final DateTime? medicalCertificateExpiry;
 
   Player({
     required this.id,
@@ -13,12 +15,16 @@ class Player {
     required this.position,
     required this.sessionsCompleted,
     required this.lastAttendance,
+    this.birthDate,
+    this.medicalCertificateExpiry,
   });
 
   String get fullName => '$firstName $lastName';
 
   factory Player.fromMap(Map<String, dynamic> map) {
     final rawAttendance = map['last_attendance'] as String?;
+    final rawBirthDate = map['date_of_birth'] as String?;
+
     return Player(
       id: map['id'] as String,
       firstName: map['first_name'] as String? ?? '',
@@ -28,6 +34,7 @@ class Player {
       lastAttendance: rawAttendance != null
           ? DateTime.parse(rawAttendance)
           : DateTime.fromMillisecondsSinceEpoch(0),
+      birthDate: rawBirthDate != null ? DateTime.parse(rawBirthDate) : null,
     );
   }
 }

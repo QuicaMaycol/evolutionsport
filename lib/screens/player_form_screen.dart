@@ -116,7 +116,7 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
         'position': _selectedPosition,
         'academy_id': academyId,
         'team_id': _selectedTeamId, // Nuevo
-        'birth_date': _selectedBirthDate?.toIso8601String(), // Nuevo
+        'date_of_birth': _selectedBirthDate?.toIso8601String(), // Corregido
         'updated_at': DateTime.now().toIso8601String(),
       };
 
