@@ -7,6 +7,7 @@ import 'groups_screen.dart';
 import 'calendar_screen.dart';
 import 'coach_profile_screen.dart';
 import 'template_library_screen.dart';
+import 'drills_library_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -171,16 +172,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 }
 
                 final myAcademies = academiesSnapshot.data!;
+                
+                // Si es ADMIN, no mostramos "Modo Freelancer"
+                // El admin está atado a su gestión.
+                // Si es COACH, le damos la libertad.
+                final isCoach = role == 'coach';
+                
                 final allOptions = [
-                  if (role == 'coach') {'id': null, 'name': 'Modo Freelancer'},
+                  if (isCoach) {'id': null, 'name': 'Modo Freelancer'},
                   ...myAcademies
                 ];
-
+                
+                // Si solo hay una opción (ej: Admin con su academia), mostramos texto fijo, no dropdown
                 if (allOptions.length <= 1) {
-                  return Text(
-                    allOptions.isNotEmpty ? (allOptions[0]['name'] ?? 'Evolution Sport') : 'Evolution Sport',
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                  );
+                   // Si es Admin, mostramos el nombre de su academia actual
+                   // Buscamos el nombre en la lista myAcademies que coincida con academyId
+                   var currentAcademyName = 'Evolution Sport';
+                   if (academyId != null && myAcademies.isNotEmpty) {
+                      final found = myAcademies.firstWhere(
+                        (a) => a['id'] == academyId, 
+                        orElse: () => {'name': null}
+                      );
+                      if (found['name'] != null) {
+                        currentAcademyName = found['name'];
+                      }
+                   }
+                   
+                   return Text(currentAcademyName, style: const TextStyle(fontWeight: FontWeight.bold));
                 }
 
                 return DropdownButtonHideUnderline(
@@ -286,7 +304,35 @@ class _DashboardContent extends StatelessWidget {
           const NextEventCard(),
           const SizedBox(height: 20),
           ComplianceKpi(playersFuture: playersFuture),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
+          const Text('Herramientas Técnicas', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _QuickActionCard(
+                  title: 'Banco de Ejercicios',
+                  icon: Icons.fitness_center,
+                  color: Colors.green,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const DrillsLibraryScreen()));
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _QuickActionCard(
+                  title: 'Biblioteca Táctica',
+                  icon: Icons.library_books,
+                  color: Colors.amber,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const TemplateLibraryScreen()));
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
           const Text('Pendientes de Hoy', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           SizedBox(
@@ -305,6 +351,51 @@ class _DashboardContent extends StatelessWidget {
   }
 }
 
+class _QuickActionCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _QuickActionCard({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _FreelanceDashboard extends StatelessWidget {
   final VoidCallback onNavigateToStore;
   const _FreelanceDashboard({required this.onNavigateToStore});
@@ -318,6 +409,17 @@ class _FreelanceDashboard extends StatelessWidget {
         const Text('Construye tu marca personal y vende tu conocimiento.', style: TextStyle(color: Colors.white38)),
         const SizedBox(height: 32),
         _buildActionCard(context, title: 'Mi Biblioteca Táctica', desc: 'Gestiona y publica tus microciclos.', icon: Icons.library_books, color: Colors.amber, onTap: onNavigateToStore),
+        const SizedBox(height: 16),
+        _buildActionCard(
+          context, 
+          title: 'Banco de Ejercicios', 
+          desc: 'Tus tareas y ejercicios de entrenamiento.', 
+          icon: Icons.fitness_center, 
+          color: Colors.green, 
+          onTap: () {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const DrillsLibraryScreen()));
+          }
+        ),
         const SizedBox(height: 16),
         _buildActionCard(
           context, 

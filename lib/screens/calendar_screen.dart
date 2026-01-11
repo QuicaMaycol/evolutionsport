@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:io';
 import 'package:intl/intl.dart';
+import 'session_form_screen.dart';
+import 'tactical_board_screen.dart';
+import 'drill_form_screen.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -50,6 +54,24 @@ class _CalendarScreenState extends State<CalendarScreen> {
         return 'Charla Táctica';
       default:
         return 'Entrenamiento';
+    }
+  }
+
+  Future<void> _quickDrillFromBoard() async {
+    final File? boardImage = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const TacticalBoardScreen()),
+    );
+
+    if (boardImage != null && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DrillFormScreen(
+            initialBoardImage: boardImage,
+          ),
+        ),
+      );
     }
   }
 
@@ -104,152 +126,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _addSession() async {
-    final titleController = TextEditingController();
-    final timeController = TextEditingController(text: "08:00");
-    String? selectedTeamId;
-    String sessionType = 'training';
-    double intensity = 5.0;
-    List<Map<String, dynamic>> teams = [];
-
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('profiles').select('academy_id').eq('id', user!.id).single();
-      final teamResp = await Supabase.instance.client.from('teams').select('id, name').eq('academy_id', profile['academy_id']);
-      teams = List<Map<String, dynamic>>.from(teamResp);
-    } catch (e) {}
-
-    if (!mounted) return;
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          return Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              left: 24, right: 24, top: 24,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Planificar Sesión', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: titleController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Objetivo Principal', border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedTeamId,
-                  dropdownColor: const Color(0xFF2D2D2D),
-                  decoration: const InputDecoration(labelText: 'Grupo / Categoría', border: OutlineInputBorder()),
-                  items: teams.map<DropdownMenuItem<String>>((t) => DropdownMenuItem<String>(value: t['id'], child: Text(t['name'], style: const TextStyle(color: Colors.white)))).toList(),
-                  onChanged: (val) => setModalState(() => selectedTeamId = val),
-                ),
-                const SizedBox(height: 24),
-                const Text('Tipo de Estímulo', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    _ChoiceChip(label: 'Campo', selected: sessionType == 'training', onSelected: (b) => setModalState(() => sessionType = 'training')),
-                    _ChoiceChip(label: 'Físico/Gym', selected: sessionType == 'gym', onSelected: (b) => setModalState(() => sessionType = 'gym')),
-                    _ChoiceChip(label: 'Partido', selected: sessionType == 'match', color: Colors.blue, onSelected: (b) => setModalState(() => sessionType = 'match')),
-                    _ChoiceChip(label: 'Recuperación', selected: sessionType == 'recovery', color: Colors.green, onSelected: (b) => setModalState(() => sessionType = 'recovery')),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Text('Carga (RPE)', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () {
-                            showDialog(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                backgroundColor: const Color(0xFF2D2D2D),
-                                title: const Text('¿Qué es RPE?', style: TextStyle(color: Colors.white)),
-                                content: const Text(
-                                  'RPE (Índice de Esfuerzo Percibido) es una escala del 1 al 10.\n\n1-3: Recuperación\n4-6: Mantenimiento\n7-8: Alta Intensidad\n9-10: Máxima exigencia',
-                                  style: TextStyle(color: Colors.white70),
-                                ),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Entendido', style: TextStyle(color: Color(0xFF4CAF50)))),
-                                ],
-                              ),
-                            );
-                          },
-                          child: Icon(Icons.info_outline, size: 16, color: Colors.grey.shade600),
-                        ),
-                      ],
-                    ),
-                    Text(intensity.toInt().toString(), style: TextStyle(color: _getIntensityColor(intensity.toInt()), fontWeight: FontWeight.bold, fontSize: 16)),
-                  ],
-                ),
-                Slider(
-                  value: intensity,
-                  min: 1,
-                  max: 10,
-                  divisions: 9,
-                  activeColor: _getIntensityColor(intensity.toInt()),
-                  onChanged: (val) => setModalState(() => intensity = val),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: timeController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Hora de Inicio', border: OutlineInputBorder(), prefixIcon: Icon(Icons.access_time)),
-                  keyboardType: TextInputType.datetime,
-                ),
-                const SizedBox(height: 32),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (titleController.text.isEmpty || selectedTeamId == null) return;
-                      try {
-                        final timeParts = timeController.text.split(':');
-                        final startTime = DateTime(
-                          _selectedDate.year, _selectedDate.month, _selectedDate.day,
-                          int.parse(timeParts[0]), int.parse(timeParts[1]),
-                        );
-                        
-                        final user = Supabase.instance.client.auth.currentUser;
-                        final profile = await Supabase.instance.client.from('profiles').select('academy_id').eq('id', user!.id).single();
-
-                        await Supabase.instance.client.from('events').insert({
-                          'title': titleController.text,
-                          'team_id': selectedTeamId,
-                          'academy_id': profile['academy_id'],
-                          'start_time': startTime.toIso8601String(),
-                          'end_time': startTime.add(const Duration(hours: 2)).toIso8601String(),
-                          'session_type': sessionType,
-                          'rpe': intensity.toInt(),
-                        });
-                        
-                        if (context.mounted) Navigator.pop(context);
-                        _loadEvents();
-                      } catch (e) {}
-                    },
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), padding: const EdgeInsets.symmetric(vertical: 16)),
-                    child: const Text('Guardar Sesión', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SessionFormScreen(initialDate: _selectedDate),
       ),
     );
+
+    if (result == true) {
+      _loadEvents();
+    }
   }
 
   Future<void> _showImportDialog() async {
@@ -760,6 +646,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          FloatingActionButton.extended(
+            heroTag: 'boardBtn',
+            onPressed: _quickDrillFromBoard,
+            backgroundColor: Colors.amber,
+            foregroundColor: Colors.black,
+            icon: const Icon(Icons.palette),
+            label: const Text('Pizarra Táctica', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 16),
           FloatingActionButton.extended(
             heroTag: 'importBtn',
             onPressed: _showImportDialog,
