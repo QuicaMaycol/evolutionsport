@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart';
 import '../models/player.dart';
 import '../widgets/player_list.dart';
 import 'team_management_screen.dart';
@@ -10,6 +9,10 @@ import 'coach_profile_screen.dart';
 import 'template_library_screen.dart';
 import 'drills_library_screen.dart';
 import 'player_evaluation_screen.dart';
+import 'session_form_screen.dart';
+import 'player_form_screen.dart';
+import 'super_admin_dashboard.dart';
+import 'subscription_locked_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -76,12 +79,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return {'role': 'coach', 'academy_id': null, 'is_freelancer': false, 'full_name': 'Entrenador'};
     
-    final response = await Supabase.instance.client
-        .from('profiles')
-        .select('full_name, role, academy_id, is_freelancer')
-        .eq('id', user.id)
-        .single();
-    return Map<String, dynamic>.from(response);
+    try {
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select('full_name, role, academy_id, is_freelancer')
+          .eq('id', user.id)
+          .single();
+      return Map<String, dynamic>.from(response);
+    } catch (e) {
+      // Fallback a metadatos si el perfil no existe en DB
+      final meta = user.userMetadata ?? {};
+      return {
+        'role': 'admin',
+        'academy_id': null,
+        'is_freelancer': meta['is_freelancer'] ?? false,
+        'full_name': meta['full_name'] ?? 'Usuario',
+      };
+    }
   }
 
   Future<List<Player>> _loadPlayers() async {
@@ -130,8 +144,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final academyId = profileSnapshot.data!['academy_id'];
         final fullName = profileSnapshot.data!['full_name'] ?? 'Profe';
         
-        // Lógica clave: Mostrar vista freelancer SOLO si no hay academia seleccionada
-        final isViewFreelance = academyId == null;
+        final isFreelancer = profileSnapshot.data!['is_freelancer'] ?? false;
+        
+        // Lógica clave: Mostrar vista de academia si NO es freelancer, incluso sin academyId asignado aún
+        final isViewFreelance = isFreelancer && academyId == null;
 
         final pages = <Widget>[
           if (isViewFreelance)
@@ -173,7 +189,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               future: _myAcademiesFuture,
               builder: (context, academiesSnapshot) {
                 if (!academiesSnapshot.hasData || academiesSnapshot.data!.isEmpty) {
-                   return const Text('Evolution Sport');
+                   return Row(
+                     children: [
+                       Image.asset('assets/images/logo_abreviado.png', height: 32),
+                       const SizedBox(width: 12),
+                       const Text('Direction Futbol Pro'),
+                     ],
+                   );
                 }
 
                 final myAcademies = academiesSnapshot.data!;
@@ -279,13 +301,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               if (!isViewFreelance)
                 const BottomNavigationBarItem(icon: Icon(Icons.groups), label: 'Grupos'),
-              const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Planificar'),
-            ],
-          ),
-        );
-      },
-    );
-  }
+            const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Planificar'),
+          ],
+        ),
+        floatingActionButton: (role == 'admin' && _selectedIndex == 1)
+            ? FloatingActionButton(
+                backgroundColor: const Color(0xFF4CAF50),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PlayerFormScreen()),
+                  ).then((_) => _refreshPlayers());
+                },
+                child: const Icon(Icons.person_add_alt_1, color: Colors.white),
+              )
+            : null,
+      );
+    },
+  );
+}
 }
 
 class _DashboardContent extends StatelessWidget {

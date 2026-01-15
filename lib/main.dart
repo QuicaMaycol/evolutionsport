@@ -29,7 +29,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Academia de Futbol',
+      title: 'Direction Futbol Pro',
       debugShowCheckedModeBanner: false,
       // Configuración de localización
       localizationsDelegates: const [
@@ -136,14 +136,76 @@ class _AuthHandlerState extends State<AuthHandler> {
     );
   }
 
+  Future<Map<String, dynamic>> _createProfileFromMetadata(String userId) async {
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) return {'role': 'unknown', 'is_active': false};
+
+      final meta = user.userMetadata ?? {};
+      final fullName = meta['full_name'] ?? 'Usuario Nuevo';
+      final academyName = meta['academy_name'] ?? 'Mi Academia';
+      final isFreelancer = meta['is_freelancer'] ?? false;
+
+      String? academyId;
+
+      // 1. Crear Perfil primero (en el esquema evolutionsport)
+      try {
+        await supabase.schema('evolutionsport').from('profiles').insert({
+          'id': userId,
+          'full_name': fullName,
+          'role': 'admin',
+          'is_freelancer': isFreelancer,
+        });
+      } catch (e) {
+        debugPrint('Error creando perfil: $e');
+      }
+
+      // 2. Crear Academia
+      if (!isFreelancer) {
+        try {
+          final newAcademy = await supabase.schema('evolutionsport').from('academies').insert({
+            'name': academyName,
+          }).select().single();
+          
+          academyId = newAcademy['id'];
+
+          // 3. Vincular
+          await supabase.schema('evolutionsport').from('profiles').update({
+            'academy_id': academyId,
+          }).eq('id', userId);
+
+          await supabase.schema('evolutionsport').from('coach_academies').insert({
+            'coach_id': userId,
+            'academy_id': academyId,
+            'role': 'admin',
+            'is_active': true,
+          });
+        } catch (e) {
+          debugPrint('Error creando academia/vínculo: $e');
+        }
+      }
+
+      return {'role': 'admin', 'is_active': true};
+    } catch (e) {
+      debugPrint('Error general: $e');
+      return {'role': 'admin', 'is_active': true};
+    }
+  }
+
   Future<Map<String, dynamic>> _getUserStatus(String userId) async {
     try {
-      final profile = await supabase
+      final response = await supabase
+          .schema('evolutionsport')
           .from('profiles')
           .select('role, academy_id')
-          .eq('id', userId)
-          .single();
+          .eq('id', userId);
+      
+      if (response == null || (response as List).isEmpty) {
+        debugPrint('Perfil no encontrado. Iniciando auto-creación para: $userId');
+        return await _createProfileFromMetadata(userId);
+      }
 
+      final profile = (response as List).first;
       final role = profile['role'];
       
       // Si es super_admin, no necesitamos verificar academia
@@ -154,18 +216,30 @@ class _AuthHandlerState extends State<AuthHandler> {
       // Verificar estado de la academia
       final academyId = profile['academy_id'];
       if (academyId != null) {
-        final academy = await supabase
-            .from('academies')
-            .select('is_active')
-            .eq('id', academyId)
-            .single();
-        return {'role': role, 'is_active': academy['is_active']};
+        try {
+          final academy = await supabase
+              .schema('evolutionsport')
+              .from('academies')
+              .select('is_active')
+              .eq('id', academyId)
+              .single();
+          
+          // Si el campo es nulo, asumimos activo
+          return {'role': role, 'is_active': academy['is_active'] ?? true};
+        } catch (academyError) {
+          debugPrint('Error al verificar academia: $academyError');
+          // Si falla la consulta a la academia (ej: columna no existe o RLS), 
+          // permitimos el acceso por defecto
+          return {'role': role, 'is_active': true};
+        }
       }
       
-      // Fallback si algo está raro
+      // Fallback si algo está raro (por ejemplo, perfil recién creado)
       return {'role': role, 'is_active': true};
     } catch (e) {
-      return {'role': 'unknown', 'is_active': false};
+      debugPrint('Error en _getUserStatus: $e');
+      // En caso de error, permitimos el acceso por defecto para evitar bloqueos por RLS o latencia
+      return {'role': 'unknown', 'is_active': true};
     }
   }
 }

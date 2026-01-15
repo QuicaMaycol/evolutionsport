@@ -72,13 +72,20 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Evolution Sport',
+              Image.asset(
+                'assets/images/logo2.png',
+                height: 120,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Direction Futbol Pro',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 1.2,
+                ),
               ),
               const SizedBox(height: 48),
               TextFormField(

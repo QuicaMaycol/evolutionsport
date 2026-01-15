@@ -99,7 +99,7 @@ class _PlayerEvaluationScreenState extends State<PlayerEvaluationScreen> {
           .select('pace, shooting, passing, dribbling, defending, physical')
           .eq('coach_id', user.id);
 
-      if (allEvals != null && (allEvals as List).isNotEmpty && mounted) {
+      if ((allEvals as List).isNotEmpty && mounted) {
         final evals = allEvals as List;
         setState(() {
           _teamAverages = {

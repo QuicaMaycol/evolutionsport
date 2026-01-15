@@ -23,7 +23,7 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
   String? _selectedTeamId;
   Map<String, dynamic>? _selectedObjective;
   List<Map<String, dynamic>> _suggestedDrills = [];
-  List<Map<String, dynamic>> _selectedDrills = [];
+  final List<Map<String, dynamic>> _selectedDrills = [];
   String _stimulusType = 'Campo';
   double _rpeLoad = 5.0;
   final _notesController = TextEditingController();
@@ -295,7 +295,7 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
               const Text('Grupo / Categoría', style: TextStyle(color: Colors.white70, fontSize: 14)),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: _selectedTeamId,
+                initialValue: _selectedTeamId,
                 dropdownColor: const Color(0xFF2D2D2D),
                 decoration: InputDecoration(
                   filled: true,
@@ -515,7 +515,7 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
                 const SizedBox(height: 32),
               ],
 
@@ -601,7 +601,7 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
                 subtitle: const Text('Podrás reutilizar este plan en el futuro', style: TextStyle(color: Colors.white38, fontSize: 12)),
                 value: _saveAsTemplate,
                 onChanged: (val) => setState(() => _saveAsTemplate = val),
-                activeColor: const Color(0xFF4CAF50),
+                activeThumbColor: const Color(0xFF4CAF50),
               ),
               const SizedBox(height: 32),
 

@@ -113,7 +113,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: selectedCoachId,
+              initialValue: selectedCoachId,
               dropdownColor: const Color(0xFF2D2D2D),
               decoration: const InputDecoration(
                 labelText: 'Entrenador a Cargo',

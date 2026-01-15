@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../widgets/objective_selector_modal.dart';
 
 class TemplateFormScreen extends StatefulWidget {
   final Map<String, dynamic>? template;
@@ -14,10 +15,14 @@ class TemplateFormScreen extends StatefulWidget {
 class _TemplateFormScreenState extends State<TemplateFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
-  final _descController = TextEditingController();
-  final _priceController = TextEditingController();
+  final _notesController = TextEditingController();
+  final _priceController = TextEditingController(text: '0.0');
 
-  String _selectedType = 'microcycle';
+  String _selectedType = 'session';
+  String _stimulusType = 'Campo';
+  double _rpeLoad = 5.0;
+  Map<String, dynamic>? _selectedObjective;
+  
   bool _isForSale = false;
   bool _isSaving = false;
 
@@ -26,23 +31,51 @@ class _TemplateFormScreenState extends State<TemplateFormScreen> {
     super.initState();
     if (widget.template != null) {
       _titleController.text = widget.template!['title'] ?? '';
-      _descController.text = widget.template!['description'] ?? '';
+      _notesController.text = widget.template!['description'] ?? '';
       _priceController.text = (widget.template!['price'] ?? 0).toString();
-      _selectedType = widget.template!['type'] ?? 'microcycle';
+      _selectedType = widget.template!['type'] ?? 'session';
       _isForSale = widget.template!['is_for_sale'] ?? false;
+      _stimulusType = widget.template!['stimulus_type'] ?? 'Campo';
+      _rpeLoad = (widget.template!['rpe_load'] ?? 5.0).toDouble();
+      
+      if (widget.template!['objective_id'] != null) {
+        _loadObjective(widget.template!['objective_id']);
+      }
+    }
+  }
+
+  Future<void> _loadObjective(String id) async {
+    try {
+      final resp = await Supabase.instance.client
+          .schema('evolutionsport')
+          .from('objectives')
+          .select()
+          .eq('id', id)
+          .single();
+      setState(() {
+        _selectedObjective = resp;
+      });
+    } catch (e) {
+      debugPrint('Error loading objective: $e');
     }
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _descController.dispose();
+    _notesController.dispose();
     _priceController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedObjective == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor, selecciona un objetivo principal')),
+      );
+      return;
+    }
 
     setState(() => _isSaving = true);
 
@@ -52,28 +85,27 @@ class _TemplateFormScreenState extends State<TemplateFormScreen> {
 
       final data = {
         'title': _titleController.text.trim(),
-        'description': _descController.text.trim(),
+        'description': _notesController.text.trim(),
         'type': _selectedType,
         'is_for_sale': _isForSale,
         'price': price,
         'creator_id': userId,
+        'objective_id': _selectedObjective!['id'],
+        'stimulus_type': _stimulusType,
+        'rpe_load': _rpeLoad,
         'updated_at': DateTime.now().toIso8601String(),
       };
 
       if (widget.template == null) {
-        // Create new
         await Supabase.instance.client.from('templates').insert(data);
       } else {
-        // Update existing
         await Supabase.instance.client
             .from('templates')
             .update(data)
             .eq('id', widget.template!['id']);
       }
 
-      if (mounted) {
-        Navigator.pop(context, true); // Return success
-      }
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -90,105 +122,174 @@ class _TemplateFormScreenState extends State<TemplateFormScreen> {
     final isEditing = widget.template != null;
 
     return Scaffold(
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: Text(isEditing ? 'Editar Plantilla' : 'Nueva Plantilla'),
+        title: Text(isEditing ? 'Editar Plantilla' : 'Nueva Plantilla Táctica'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Text('Nombre de la Plantilla', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              const SizedBox(height: 8),
               TextFormField(
                 controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Título de la Plantilla',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.title),
+                decoration: InputDecoration(
+                  hintText: 'Ej: Posesión y Transición Ofensiva',
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.05),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 ),
-                validator: (val) => val == null || val.isEmpty ? 'Ingresa un título' : null,
-              ),
-              const SizedBox(height: 16),
-              
-              DropdownButtonFormField<String>(
-                value: _selectedType,
-                decoration: const InputDecoration(
-                  labelText: 'Tipo de Planificación',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.category),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'session', child: Text('Sesión Única')),
-                  DropdownMenuItem(value: 'microcycle', child: Text('Microciclo (Semana)')),
-                  DropdownMenuItem(value: 'mesocycle', child: Text('Mesociclo (Mes)')),
-                  DropdownMenuItem(value: 'season', child: Text('Temporada (Año)')),
-                ],
-                onChanged: (val) => setState(() => _selectedType = val!),
-              ),
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: _descController,
-                decoration: const InputDecoration(
-                  labelText: 'Descripción (Opcional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.description),
-                ),
-                maxLines: 3,
+                validator: (v) => v == null || v.isEmpty ? 'Requerido' : null,
               ),
               const SizedBox(height: 24),
 
-              // Sección de Venta
+              const Text('Objetivo Principal', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  final result = await showModalBottomSheet<Map<String, dynamic>>(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => const ObjectiveSelectorModal(),
+                  );
+                  if (result != null) setState(() => _selectedObjective = result);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _selectedObjective != null ? Colors.green.withOpacity(0.3) : Colors.transparent),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.track_changes, color: _selectedObjective != null ? Colors.green : Colors.grey),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _selectedObjective != null ? _selectedObjective!['name'] : 'Seleccionar objetivo...',
+                          style: TextStyle(color: _selectedObjective != null ? Colors.white : Colors.grey, fontSize: 16),
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.grey),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              const Text('Tipo de Estímulo', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              const SizedBox(height: 12),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: ['Campo', 'Físico/Gym', 'Partido', 'Recuperación', 'Video'].map((type) {
+                    final isSelected = _stimulusType == type;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(type),
+                        selected: isSelected,
+                        onSelected: (val) => setState(() => _stimulusType = type),
+                        selectedColor: Colors.green.withOpacity(0.2),
+                        labelStyle: TextStyle(color: isSelected ? Colors.green : Colors.grey),
+                        backgroundColor: Colors.white.withOpacity(0.05),
+                        side: BorderSide(color: isSelected ? Colors.green.withOpacity(0.5) : Colors.transparent),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Carga (RPE)', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                  Text('${_rpeLoad.toInt()}', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18)),
+                ],
+              ),
+              Slider(
+                value: _rpeLoad,
+                min: 1,
+                max: 10,
+                divisions: 9,
+                activeColor: Colors.amber,
+                inactiveColor: Colors.white.withOpacity(0.1),
+                onChanged: (val) => setState(() => _rpeLoad = val),
+              ),
+              const SizedBox(height: 24),
+
+              const Text('Notas / Observaciones', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _notesController,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  hintText: 'Detalles técnicos, variantes, recordatorios...',
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.05),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 32),
+
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: _isForSale ? Colors.amber.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+                  color: Colors.blue.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _isForSale ? Colors.amber : Colors.grey.withOpacity(0.3)),
+                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
                 ),
                 child: Column(
                   children: [
                     SwitchListTile(
-                      title: const Text('Poner a la Venta', style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Disponible para otros entrenadores en el Marketplace'),
+                      title: const Text('Publicar en Marketplace', style: TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Permite que otros entrenadores compren esta plantilla'),
                       value: _isForSale,
                       onChanged: (val) => setState(() => _isForSale = val),
-                      activeColor: Colors.amber,
+                      activeColor: Colors.blue,
                     ),
                     if (_isForSale) ...[
                       const Divider(),
                       TextFormField(
                         controller: _priceController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
                         decoration: const InputDecoration(
-                          labelText: 'Precio (USD)',
+                          labelText: 'Precio de venta (\$)',
                           prefixIcon: Icon(Icons.attach_money),
-                          border: OutlineInputBorder(),
                         ),
-                        validator: (val) {
-                          if (!_isForSale) return null;
-                          if (val == null || val.isEmpty) return 'Ingresa un precio';
-                          if (double.tryParse(val) == null) return 'Precio inválido';
-                          return null;
-                        },
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+                        ],
                       ),
                     ],
                   ],
                 ),
               ),
+              const SizedBox(height: 48),
 
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: _isSaving ? null : _save,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: const Color(0xFF4CAF50),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isSaving
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(isEditing ? 'Actualizar Plantilla' : 'Crear Plantilla', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
-                child: _isSaving 
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Guardar Plantilla', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
               ),
             ],
           ),

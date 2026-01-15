@@ -352,7 +352,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: selectedType,
+                    initialValue: selectedType,
                     dropdownColor: const Color(0xFF333333),
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(labelText: 'Tipo de Periodo', labelStyle: TextStyle(color: Colors.grey)),
@@ -418,7 +418,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     title: const Text('Vender en Marketplace', style: TextStyle(color: Colors.white)),
                     subtitle: const Text('Disponible para otros usuarios', style: TextStyle(color: Colors.grey, fontSize: 12)),
                     value: isMarketplace,
-                    activeColor: const Color(0xFF4CAF50),
+                    activeThumbColor: const Color(0xFF4CAF50),
                     contentPadding: EdgeInsets.zero,
                     onChanged: (val) => setState(() => isMarketplace = val),
                   ),
@@ -971,7 +971,7 @@ class _ChoiceChip extends StatelessWidget {
   final ValueChanged<bool> onSelected;
   final Color color;
 
-  const _ChoiceChip({required this.label, required this.selected, required this.onSelected, this.color = const Color(0xFF4CAF50)});
+  const _ChoiceChip({required this.label, required this.selected, required this.onSelected, required this.color});
 
   @override
   Widget build(BuildContext context) {

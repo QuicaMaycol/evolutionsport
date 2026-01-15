@@ -123,7 +123,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Crear Cuenta')),
+      appBar: AppBar(title: const Text('Únete a Direction Futbol Pro')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),

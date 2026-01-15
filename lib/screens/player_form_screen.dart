@@ -186,7 +186,7 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
 
               // Selector de Equipo/Grupo
               DropdownButtonFormField<String>(
-                value: _selectedTeamId,
+                initialValue: _selectedTeamId,
                 decoration: const InputDecoration(
                   labelText: 'Grupo / Categoría',
                   prefixIcon: Icon(Icons.groups),
@@ -207,7 +207,7 @@ class _PlayerFormScreenState extends State<PlayerFormScreen> {
               const SizedBox(height: 16),
 
               DropdownButtonFormField<String>(
-                value: _selectedPosition,
+                initialValue: _selectedPosition,
                 decoration: const InputDecoration(
                   labelText: 'Posición',
                   prefixIcon: Icon(Icons.sports_soccer),

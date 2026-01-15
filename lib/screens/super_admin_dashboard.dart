@@ -108,7 +108,7 @@ class _AcademiesTabState extends State<_AcademiesTab> {
                 title: Text(academy['name'] ?? 'Sin nombre', style: TextStyle(color: isActive ? Colors.white : Colors.grey)),
                 trailing: Switch(
                   value: isActive,
-                  activeColor: const Color(0xFF4CAF50),
+                  activeThumbColor: const Color(0xFF4CAF50),
                   onChanged: (val) => _toggleAcademyStatus(academy['id'], isActive),
                 ),
               ),

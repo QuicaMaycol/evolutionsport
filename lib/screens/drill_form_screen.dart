@@ -23,7 +23,7 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
   final _minPlayersController = TextEditingController(text: '1');
   final _materialsController = TextEditingController();
 
-  List<Map<String, dynamic>> _selectedObjectives = [];
+  final List<Map<String, dynamic>> _selectedObjectives = [];
   bool _isSaving = false;
   bool _isPublic = false;
   
@@ -334,7 +334,7 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
                       title: const Text('Público', style: TextStyle(color: Colors.white, fontSize: 14)),
                       value: _isPublic,
                       onChanged: (val) => setState(() => _isPublic = val),
-                      activeColor: const Color(0xFF4CAF50),
+                      activeThumbColor: const Color(0xFF4CAF50),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
