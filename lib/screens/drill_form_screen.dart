@@ -26,6 +26,7 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
   final List<Map<String, dynamic>> _selectedObjectives = [];
   bool _isSaving = false;
   bool _isPublic = false;
+  String _selectedCategory = 'main'; // Por defecto: Fase Principal
   
   // Multimedia states
   String _mediaType = 'youtube'; // 'youtube' or 'image'
@@ -50,6 +51,7 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
       _minPlayersController.text = (widget.drill!['min_players'] ?? 1).toString();
       _materialsController.text = (widget.drill!['materials'] as List? ?? []).join(', ');
       _isPublic = widget.drill!['is_public'] ?? false;
+      _selectedCategory = widget.drill!['category'] ?? 'main'; // Cargar categoría
       
       final url = widget.drill!['multimedia_url'] as String?;
       if (url != null && url.isNotEmpty) {
@@ -83,11 +85,31 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
   }
 
   String? _extractYoutubeId(String url) {
-    if (url.contains('youtu.be/')) {
-      return url.split('youtu.be/').last.split('?').first;
-    } else if (url.contains('v=')) {
-      return url.split('v=').last.split('&').first;
+    if (url.isEmpty) return null;
+    
+    // RegEx robusta para capturar ID de Shorts, Watch, Embed, ytu.be
+    final regExp = RegExp(
+      r'^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*',
+      caseSensitive: false,
+      multiLine: false,
+    );
+    
+    final match = regExp.firstMatch(url);
+    if (match != null && match.group(7) != null) {
+      final id = match.group(7);
+      return (id!.length == 11) ? id : null; 
     }
+    
+    // Soporte específico para Shorts si la RegEx anterior falla
+    if (url.contains('shorts/')) {
+      final uri = Uri.parse(url);
+      final segments = uri.pathSegments;
+      final shortsIndex = segments.indexOf('shorts');
+      if (shortsIndex != -1 && shortsIndex + 1 < segments.length) {
+        return segments[shortsIndex + 1];
+      }
+    }
+
     return null;
   }
 
@@ -175,6 +197,7 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
         'materials': materials,
         'objective_ids': objectiveIds,
         'is_public': _isPublic,
+        'category': _selectedCategory, // Guardar categoría
         'creator_id': user.id,
         'academy_id': profile['academy_id'],
       };
@@ -210,6 +233,24 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(labelText: 'Título del Ejercicio', border: OutlineInputBorder()),
                 validator: (val) => val == null || val.isEmpty ? 'Requerido' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Selector de Fase / Categoría
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                dropdownColor: const Color(0xFF2D2D2D),
+                decoration: const InputDecoration(
+                  labelText: 'Fase de la Sesión',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.category),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'main', child: Text('Fase Principal', style: TextStyle(color: Colors.white))),
+                  DropdownMenuItem(value: 'warmup', child: Text('Activación / Inicio', style: TextStyle(color: Colors.amber))),
+                  DropdownMenuItem(value: 'cooldown', child: Text('Vuelta a la Calma', style: TextStyle(color: Colors.greenAccent))),
+                ],
+                onChanged: (val) => setState(() => _selectedCategory = val!),
               ),
               const SizedBox(height: 16),
               

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/player.dart';
 import '../screens/player_form_screen.dart';
+import '../screens/player_profile_screen.dart';
+import 'attendance_insights_bar.dart';
 
 class PlayerList extends StatefulWidget {
   final Future<List<Player>> playersFuture;
@@ -30,11 +32,6 @@ class _PlayerListState extends State<PlayerList> {
   bool _isLoading = true;
   String? _errorMessage;
 
-  // Datos de reportes
-  int _absentYesterday = 0;
-  String _commitmentRate = "0%";
-  int _atRiskCount = 0;
-
   @override
   void initState() {
     super.initState();
@@ -57,10 +54,6 @@ class _PlayerListState extends State<PlayerList> {
     });
     try {
       final players = await widget.playersFuture;
-      
-      // Cargar insights de asistencia
-      await _loadAttendanceInsights();
-
       if (mounted) {
         setState(() {
           _allPlayers = players;
@@ -77,47 +70,6 @@ class _PlayerListState extends State<PlayerList> {
     }
   }
 
-  Future<void> _loadAttendanceInsights() async {
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      final profile = await Supabase.instance.client.from('profiles').select('academy_id').eq('id', user!.id).single();
-      final academyId = profile['academy_id'];
-
-      if (academyId == null) return;
-
-      // 1. Ausentes Ayer (última sesión)
-      final lastSession = await Supabase.instance.client
-          .from('sessions')
-          .select('id')
-          .eq('academy_id', academyId)
-          .order('date', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      if (lastSession != null) {
-        final attendance = await Supabase.instance.client
-            .from('session_attendance')
-            .select()
-            .eq('session_id', lastSession['id'])
-            .eq('is_present', false);
-        
-        setState(() {
-          _absentYesterday = (attendance as List).length;
-        });
-      }
-
-      // 2. Compromiso Semanal (últimos 7 días)
-      // (Lógica simplificada por ahora: promedio de asistencia de la última semana)
-      setState(() {
-        _commitmentRate = "94%"; 
-        _atRiskCount = _absentYesterday > 2 ? 1 : 0;
-      });
-
-    } catch (e) {
-      debugPrint('Error loading insights: $e');
-    }
-  }
-
   @override
   void dispose() {
     _searchController.dispose();
@@ -126,6 +78,35 @@ class _PlayerListState extends State<PlayerList> {
 
   bool _isSameDay(DateTime d1, DateTime d2) {
     return d1.year == d2.year && d1.month == d2.month && d1.day == d2.day;
+  }
+
+  Future<void> _incrementAttendance(Player player) async {
+    try {
+      final newCount = player.sessionsCompleted + 1;
+      final now = DateTime.now();
+
+      await Supabase.instance.client.from('players').update({
+        'sessions_completed': newCount,
+        'last_attendance': now.toIso8601String(),
+      }).eq('id', player.id);
+
+      setState(() {
+        final index = _allPlayers.indexWhere((p) => p.id == player.id);
+        if (index != -1) {
+          _allPlayers[index] = Player(
+            id: player.id,
+            firstName: player.firstName,
+            lastName: player.lastName,
+            position: player.position,
+            sessionsCompleted: newCount,
+            lastAttendance: now,
+            birthDate: player.birthDate,
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint('Error al marcar asistencia: $e');
+    }
   }
 
   @override
@@ -149,8 +130,11 @@ class _PlayerListState extends State<PlayerList> {
 
     return Column(
       children: [
-        _buildQuickReports(),
-        const SizedBox(height: 8),
+        // --- AQUÍ ESTÁN LOS INDICADORES QUE FALTABAN ---
+        AttendanceInsightsBar(allPlayers: _allPlayers),
+        
+        const SizedBox(height: 16),
+        
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
@@ -192,65 +176,6 @@ class _PlayerListState extends State<PlayerList> {
     );
   }
 
-  Widget _buildQuickReports() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          _buildReportCard(
-            'Ausentes Ayer',
-            '$_absentYesterday',
-            Icons.person_off_outlined,
-            Colors.redAccent,
-          ),
-          const SizedBox(width: 12),
-          _buildReportCard(
-            'Compromiso',
-            _commitmentRate,
-            Icons.star_outline,
-            Colors.greenAccent,
-          ),
-          const SizedBox(width: 12),
-          _buildReportCard(
-            'En Riesgo',
-            '$_atRiskCount',
-            Icons.warning_amber_outlined,
-            Colors.amberAccent,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReportCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      width: 140,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPositionFilter() {
     final positions = ['POR', 'DEF', 'MED', 'DEL'];
     return Container(
@@ -274,6 +199,8 @@ class _PlayerListState extends State<PlayerList> {
   }
 
   Widget _buildPlayerCard(Player player) {
+    final markedToday = _isSameDay(player.lastAttendance, DateTime.now());
+
     return Card(
       elevation: 0,
       color: Colors.white.withOpacity(0.05),
@@ -283,21 +210,43 @@ class _PlayerListState extends State<PlayerList> {
         leading: CircleAvatar(
           backgroundColor: Colors.blue.withOpacity(0.2),
           child: Text(
-            player.position ?? '?',
+            player.position[0],
             style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 12),
           ),
         ),
         title: Text('${player.firstName} ${player.lastName}', style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text('Sesiones: ${player.sessionsCompleted}'),
-        trailing: widget.showControls
-            ? IconButton(
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(
+                markedToday ? Icons.check_circle : Icons.radio_button_unchecked,
+                color: markedToday ? Colors.green : Colors.white24,
+                size: 28,
+              ),
+              onPressed: markedToday ? null : () => _incrementAttendance(player),
+            ),
+            if (widget.showControls)
+              IconButton(
                 icon: const Icon(Icons.edit, color: Colors.grey, size: 20),
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => PlayerFormScreen(player: player)),
                 ).then((_) => widget.onRefresh?.call()),
               )
-            : const Icon(Icons.chevron_right, color: Colors.white24),
+            else
+              const Icon(Icons.chevron_right, color: Colors.white24),
+          ],
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PlayerProfileScreen(player: player),
+            ),
+          ).then((_) => widget.onRefresh?.call());
+        },
       ),
     );
   }

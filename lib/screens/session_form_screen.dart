@@ -23,7 +23,12 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
   String? _selectedTeamId;
   Map<String, dynamic>? _selectedObjective;
   List<Map<String, dynamic>> _suggestedDrills = [];
-  final List<Map<String, dynamic>> _selectedDrills = [];
+  
+  // Listas separadas por fase
+  final List<Map<String, dynamic>> _warmUpDrills = [];
+  final List<Map<String, dynamic>> _mainDrills = [];
+  final List<Map<String, dynamic>> _coolDownDrills = [];
+
   String _stimulusType = 'Campo';
   double _rpeLoad = 5.0;
   final _notesController = TextEditingController();
@@ -119,29 +124,50 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
     }
   }
 
-  Future<void> _showAllDrillsSelector() async {
+  Future<void> _showAllDrillsSelector({String phase = 'main'}) async {
+    // Combinar todos los IDs para excluir
+    final allIds = [
+      ..._warmUpDrills.map((d) => d['id']),
+      ..._mainDrills.map((d) => d['id']),
+      ..._coolDownDrills.map((d) => d['id']),
+    ].cast<String>().toList();
+
     final result = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => DrillSelectorModal(
-        excludedIds: _selectedDrills.map((d) => d['id'] as String).toList(),
+        excludedIds: allIds,
         initialObjectiveId: _selectedObjective?['id'],
+        categoryFilter: phase, // 'warmup', 'main', 'cooldown'
       ),
     );
 
     if (result != null) {
-      _addDrillToSession(result);
+      _addDrillToSession(result, phase: phase);
     }
   }
 
-  void _addDrillToSession(Map<String, dynamic> drill) {
-    if (!_selectedDrills.any((d) => d['id'] == drill['id'])) {
+  void _addDrillToSession(Map<String, dynamic> drill, {String phase = 'main'}) {
+    // Verificar duplicados globalmente (opcional, pero recomendado)
+    final isDuplicate = [
+      ..._warmUpDrills, ..._mainDrills, ..._coolDownDrills
+    ].any((d) => d['id'] == drill['id']);
+
+    if (!isDuplicate) {
       setState(() {
-        _selectedDrills.add({
+        final drillWithMeta = {
           ...drill,
-          'duration': 15, // Duración por defecto
-        });
+          'duration': phase == 'warmup' ? 10 : (phase == 'cooldown' ? 5 : 15), // Duración inteligente por fase
+        };
+
+        if (phase == 'warmup') {
+          _warmUpDrills.add(drillWithMeta);
+        } else if (phase == 'cooldown') {
+          _coolDownDrills.add(drillWithMeta);
+        } else {
+          _mainDrills.add(drillWithMeta);
+        }
       });
     }
   }
@@ -181,15 +207,26 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
       final sessionId = sessionResponse['id'];
 
       // 2. Guardar los ejercicios de la sesión (session_drills)
-      if (_selectedDrills.isNotEmpty) {
-        final sessionDrillsData = _selectedDrills.asMap().entries.map((entry) {
+      // Unificamos las listas marcando su fase
+      final drillsToSave = [
+        ..._warmUpDrills.map((d) => {'drill': d, 'phase': 'warmup'}),
+        ..._mainDrills.map((d) => {'drill': d, 'phase': 'main'}),
+        ..._coolDownDrills.map((d) => {'drill': d, 'phase': 'cooldown'}),
+      ];
+
+      if (drillsToSave.isNotEmpty) {
+        final sessionDrillsData = drillsToSave.asMap().entries.map((entry) {
           final index = entry.key;
-          final drill = entry.value;
+          final item = entry.value;
+          final drill = item['drill'] as Map<String, dynamic>;
+          final phase = item['phase'] as String;
+          
           return {
             'session_id': sessionId,
             'drill_id': drill['id'],
             'order_index': index,
             'duration_minutes': drill['duration'],
+            'phase': phase, // Nueva columna
           };
         }).toList();
 
@@ -198,6 +235,13 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
 
       // 3. Si se marcó como plantilla, guardarla también
       if (_saveAsTemplate) {
+        // Para plantillas JSON, guardamos la estructura completa
+        final templateContent = {
+          'warmup': _warmUpDrills,
+          'main': _mainDrills,
+          'cooldown': _coolDownDrills,
+        };
+        
         await Supabase.instance.client.from('templates').insert({
           'title': '${_selectedObjective!['name']} - Plan',
           'description': _notesController.text.trim(),
@@ -207,7 +251,7 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
           'creator_id': user.id,
           'academy_id': academyId,
           'type': 'session',
-          'content': _selectedDrills, // Guardamos la lista de ejercicios en el JSONB
+          'content': templateContent, 
         });
       }
 
@@ -409,9 +453,11 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
                         }
 
                         final drill = _suggestedDrills[index];
-                        final isAdded = _selectedDrills.any((d) => d['id'] == drill['id']);
+                        final isAdded = [..._warmUpDrills, ..._mainDrills, ..._coolDownDrills]
+                            .any((d) => d['id'] == drill['id']);
+                        
                         return GestureDetector(
-                          onTap: isAdded ? null : () => _addDrillToSession(drill),
+                          onTap: isAdded ? null : () => _addDrillToSession(drill, phase: 'main'), // Por defecto a principal
                           child: Container(
                             width: 160,
                             margin: const EdgeInsets.only(right: 12),
@@ -458,66 +504,35 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
                 const SizedBox(height: 32),
               ],
 
-              // LISTA DE EJERCICIOS SELECCIONADOS (EL PLAN)
-              if (_selectedDrills.isNotEmpty) ...[
-                const Text('Plan de Trabajo', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                ..._selectedDrills.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final drill = entry.value;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.03),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          backgroundColor: Colors.white.withOpacity(0.05),
-                          child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(drill['title'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                              Text('${drill['min_players']}+ jugadores', style: const TextStyle(color: Colors.white38, fontSize: 11)),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // Selector de minutos
-                        Container(
-                          width: 80,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.24),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: drill['duration'],
-                              dropdownColor: const Color(0xFF2D2D2D),
-                              isExpanded: true,
-                              items: [5, 10, 15, 20, 30, 45].map((m) => DropdownMenuItem(value: m, child: Text('$m min', style: const TextStyle(color: Colors.white, fontSize: 12)))).toList(),
-                              onChanged: (val) => setState(() => drill['duration'] = val),
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 20),
-                          onPressed: () => setState(() => _selectedDrills.removeAt(index)),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-                const SizedBox(height: 32),
-              ],
+              // PLAN DE TRABAJO EN 3 FASES
+              const Text('Estructura de la Sesión', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+
+              _buildPhaseSection(
+                title: '1. Activación / Inicio',
+                icon: Icons.directions_run,
+                headerColor: Colors.amber,
+                drills: _warmUpDrills,
+                onAdd: () => _showAllDrillsSelector(phase: 'warmup'),
+              ),
+
+              _buildPhaseSection(
+                title: '2. Fase Central',
+                icon: Icons.sports_soccer,
+                headerColor: Colors.blueAccent,
+                drills: _mainDrills,
+                onAdd: () => _showAllDrillsSelector(phase: 'main'),
+              ),
+
+              _buildPhaseSection(
+                title: '3. Vuelta a la Calma',
+                icon: Icons.self_improvement,
+                headerColor: Colors.greenAccent,
+                drills: _coolDownDrills,
+                onAdd: () => _showAllDrillsSelector(phase: 'cooldown'),
+              ),
+              
+              const SizedBox(height: 16),
 
               // Tipo de Estímulo
               const Text('Tipo de Estímulo', style: TextStyle(color: Colors.white70, fontSize: 14)),
@@ -675,5 +690,112 @@ class _SessionFormScreenState extends State<SessionFormScreen> {
     if (rpe >= 8) return const Color(0xFFEF5350);
     if (rpe >= 5) return const Color(0xFFFFCA28);
     return const Color(0xFF66BB6A);
+  }
+
+  Widget _buildPhaseSection({
+    required String title,
+    required List<Map<String, dynamic>> drills,
+    required VoidCallback onAdd,
+    required Color headerColor,
+    required IconData icon,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: headerColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: headerColor.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: headerColor, size: 20),
+                  const SizedBox(width: 8),
+                  Text(title, style: TextStyle(color: headerColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              IconButton(
+                icon: Icon(Icons.add_circle, color: headerColor),
+                onPressed: onAdd,
+                tooltip: 'Añadir ejercicio',
+              ),
+            ],
+          ),
+          if (drills.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text(
+                  'Sin ejercicios asignados',
+                  style: TextStyle(color: Colors.white.withOpacity(0.3), fontStyle: FontStyle.italic, fontSize: 12),
+                ),
+              ),
+            )
+          else ...[
+            const SizedBox(height: 12),
+            ...drills.asMap().entries.map((entry) {
+              final index = entry.key;
+              final drill = entry.value;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withOpacity(0.05)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
+                      child: Text('${index + 1}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(drill['title'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                          Text('Mín. ${drill['min_players']} jugadores', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      height: 32,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(8)),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: drill['duration'],
+                          dropdownColor: const Color(0xFF2D2D2D),
+                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 16),
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                          items: [5, 10, 15, 20, 25, 30, 45].map((m) => DropdownMenuItem(value: m, child: Text('$m\''))).toList(),
+                          onChanged: (val) => setState(() => drill['duration'] = val),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.redAccent, size: 18),
+                      onPressed: () => setState(() => drills.removeAt(index)),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ]
+        ],
+      ),
+    );
   }
 }

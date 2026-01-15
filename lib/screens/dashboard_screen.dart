@@ -13,6 +13,7 @@ import 'session_form_screen.dart';
 import 'player_form_screen.dart';
 import 'super_admin_dashboard.dart';
 import 'subscription_locked_screen.dart';
+import '../widgets/attendance_insights_bar.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -344,10 +345,6 @@ class _DashboardContent extends StatelessWidget {
         children: [
           _WelcomeHeader(fullName: fullName),
           const SizedBox(height: 24),
-          _ActivityRings(),
-          const SizedBox(height: 24),
-          SmartStatusCard(playersFuture: playersFuture),
-          const SizedBox(height: 24),
           const Text('Herramientas Técnicas', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
           const SizedBox(height: 16),
           Row(
@@ -429,63 +426,6 @@ class _WelcomeHeader extends StatelessWidget {
     );
   }
 }
-
-class _ActivityRings extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2A2A),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _RingItem(label: 'Asistencia', value: '85%', color: Colors.green),
-          _RingItem(label: 'Progreso', value: '60%', color: Colors.blue),
-          _RingItem(label: 'Carga RPE', value: '7.2', color: Colors.orange),
-        ],
-      ),
-    );
-  }
-}
-
-class _RingItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  const _RingItem({required this.label, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            SizedBox(
-              width: 50,
-              height: 50,
-              child: CircularProgressIndicator(
-                value: 0.7, // Placeholder logic
-                strokeWidth: 6,
-                backgroundColor: color.withOpacity(0.1),
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-                strokeCap: StrokeCap.round,
-              ),
-            ),
-            Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.5))),
-      ],
-    );
-  }
-}
-
 
 class _QuickActionCard extends StatelessWidget {
   final String title;
