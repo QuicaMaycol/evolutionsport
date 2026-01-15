@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../widgets/objective_selector_modal.dart';
+import '../utils/material_utils.dart';
 
 import 'tactical_board_screen.dart';
 
@@ -21,9 +22,18 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
   final _descController = TextEditingController();
   final _youtubeController = TextEditingController();
   final _minPlayersController = TextEditingController(text: '1');
-  final _materialsController = TextEditingController();
+  // Eliminamos _materialsController porque usaremos una lista dinámica
+  final TextEditingController _newMaterialController = TextEditingController();
 
   final List<Map<String, dynamic>> _selectedObjectives = [];
+  final List<String> _selectedMaterials = []; // Lista para materiales
+  
+  // Lista predefinida de materiales comunes
+  final List<String> _commonMaterials = [
+    'Balones', 'Conos', 'Petos', 'Porterías', 'Vallas', 
+    'Escalera', 'Silbato', 'Pizarra', 'Estacas', 'Aros'
+  ];
+
   bool _isSaving = false;
   bool _isPublic = false;
   String _selectedCategory = 'main'; // Por defecto: Fase Principal
@@ -49,7 +59,10 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
       _titleController.text = widget.drill!['title'] ?? '';
       _descController.text = widget.drill!['description'] ?? '';
       _minPlayersController.text = (widget.drill!['min_players'] ?? 1).toString();
-      _materialsController.text = (widget.drill!['materials'] as List? ?? []).join(', ');
+      // Cargar materiales existentes a la lista
+      final existingMaterials = widget.drill!['materials'] as List? ?? [];
+      _selectedMaterials.addAll(existingMaterials.map((e) => e.toString()));
+      
       _isPublic = widget.drill!['is_public'] ?? false;
       _selectedCategory = widget.drill!['category'] ?? 'main'; // Cargar categoría
       
@@ -186,7 +199,6 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
         finalUrl = _youtubeController.text.trim();
       }
 
-      final materials = _materialsController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
       final objectiveIds = _selectedObjectives.map((e) => e['id'] as String).toList();
 
       final data = {
@@ -194,7 +206,7 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
         'description': _descController.text.trim(),
         'multimedia_url': finalUrl,
         'min_players': int.tryParse(_minPlayersController.text) ?? 1,
-        'materials': materials,
+        'materials': _selectedMaterials, // Usar la lista directamente
         'objective_ids': objectiveIds,
         'is_public': _isPublic,
         'category': _selectedCategory, // Guardar categoría
@@ -214,6 +226,47 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  // Editar material existente en la lista
+  Future<void> _editMaterial(int index) async {
+    final editingController = TextEditingController(text: _selectedMaterials[index]);
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Editar Material'),
+          content: TextField(
+            controller: editingController,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'Material'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
+              ElevatedButton(
+              onPressed: () {
+                final val = editingController.text.trim();
+                if (val.isEmpty) {
+                  Navigator.of(ctx).pop();
+                  return;
+                }
+                final exists = isDuplicateMaterial(_selectedMaterials, val, excludeIndex: index);
+                if (exists) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Este material ya existe'), backgroundColor: Colors.red),
+                  );
+                  return;
+                }
+                setState(() => _selectedMaterials[index] = val);
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        );
+      },
+    );
+    editingController.dispose();
   }
 
   @override
@@ -381,12 +434,101 @@ class _DrillFormScreenState extends State<DrillFormScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _materialsController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Materiales (separados por coma)', hintText: 'Conos, Petos, Balones', border: OutlineInputBorder()),
+              const SizedBox(height: 24),
+
+              // SECCIÓN MATERIALES MEJORADA
+              const Text('Materiales Necesarios', style: TextStyle(color: Colors.white70, fontSize: 14)),
+              const SizedBox(height: 12),
+              
+              // 1. Materiales seleccionados
+              if (_selectedMaterials.isNotEmpty)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _selectedMaterials.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final material = entry.value;
+                    return InputChip(
+                      label: Text(material),
+                      onPressed: () => _editMaterial(index),
+                      onDeleted: () => setState(() => _selectedMaterials.removeAt(index)),
+                      backgroundColor: const Color(0xFF4CAF50).withOpacity(0.2),
+                      deleteIcon: const Icon(Icons.close, size: 16, color: Colors.white70),
+                      labelStyle: const TextStyle(color: Colors.white),
+                    );
+                  }).toList(),
+                ),
+              const SizedBox(height: 12),
+
+              // 2. Campo para añadir y sugerencias
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _newMaterialController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        hintText: 'Escribe un material...',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: (val) {
+                        if (val.trim().isNotEmpty) {
+                          setState(() {
+                            if (!_selectedMaterials.contains(val.trim())) {
+                              _selectedMaterials.add(val.trim());
+                            }
+                            _newMaterialController.clear();
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    onPressed: () {
+                      if (_newMaterialController.text.trim().isNotEmpty) {
+                        setState(() {
+                          final val = _newMaterialController.text.trim();
+                          if (!_selectedMaterials.contains(val)) {
+                            _selectedMaterials.add(val);
+                          }
+                          _newMaterialController.clear();
+                        });
+                      }
+                    },
+                    icon: const Icon(Icons.add_circle, color: Color(0xFF4CAF50), size: 32),
+                  ),
+                ],
               ),
+              const SizedBox(height: 12),
+              
+              // 3. Sugerencias rápidas
+              SizedBox(
+                height: 40,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _commonMaterials.length,
+                  itemBuilder: (context, index) {
+                    final material = _commonMaterials[index];
+                    final isSelected = _selectedMaterials.contains(material);
+                    if (isSelected) return const SizedBox.shrink(); // Ocultar si ya está
+                    
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ActionChip(
+                        label: Text(material),
+                        backgroundColor: Colors.white.withOpacity(0.05),
+                        labelStyle: const TextStyle(color: Colors.white70),
+                        onPressed: () {
+                          setState(() => _selectedMaterials.add(material));
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+              
               const SizedBox(height: 32),
               
               ElevatedButton(

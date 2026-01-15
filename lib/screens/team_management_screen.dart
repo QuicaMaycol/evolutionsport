@@ -215,16 +215,19 @@ class _InviteCard extends StatelessWidget {
                 border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3)),
               ),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.max,
                 children: [
-                  Text(
-                    code ?? 'Cargando...',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1,
-                      color: Color(0xFF4CAF50),
+                  Expanded(
+                    child: Text(
+                      code ?? 'Cargando...',
+                      textAlign: TextAlign.start,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                        color: Color(0xFF4CAF50),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
