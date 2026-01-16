@@ -16,19 +16,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _academyNameController = TextEditingController();
 
   bool _isLoading = false;
-  bool _isFreelancer = false;
-
-  void _onCodeChanged(String value) {
-    if (value.isNotEmpty && _academyNameController.text.isNotEmpty) {
-      _academyNameController.clear();
-    }
-  }
-
-  void _onNameChanged(String value) {
-    if (value.isNotEmpty && _academyCodeController.text.isNotEmpty) {
-      _academyCodeController.clear();
-    }
-  }
+  bool _isFreelancer = true;
 
   Future<void> _signUp() async {
     setState(() => _isLoading = true);
@@ -40,10 +28,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final academyCode = _academyCodeController.text.trim();
       final academyName = _academyNameController.text.trim();
 
-      if (!_isFreelancer && academyCode.isEmpty && academyName.isEmpty) {
-        throw const AuthException(
-          'Debes ingresar un Código de Invitación O el Nombre de tu Marca/Club.',
-        );
+      if (!_isFreelancer && academyName.isEmpty) {
+        throw const AuthException('Debes ingresar el nombre de la academia o empresa.');
       }
 
       await Supabase.instance.client.auth.signUp(
@@ -67,19 +53,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
               children: [
                 Icon(Icons.mark_email_read, color: Colors.green),
                 SizedBox(width: 10),
-                Text('¡Registro Exitoso!'),
+                Text('Registro Exitoso!'),
               ],
             ),
             content: const Text(
-              'Hemos enviado un enlace de confirmación a tu correo electrónico.\n\n'
-              'Por favor, revisa tu bandeja de entrada (y spam) y confirma tu cuenta para poder iniciar sesión.',
+              'Hemos enviado un enlace de confirmacion a tu correo electronico.\n\n'
+              'Por favor, revisa tu bandeja de entrada (y spam) y confirma tu cuenta para poder iniciar sesion.',
               style: TextStyle(fontSize: 16),
             ),
             actions: [
               TextButton(
                 onPressed: () {
-                  Navigator.pop(context); // Cierra dialogo
-                  Navigator.pop(context); // Vuelve al login
+                  Navigator.pop(context);
+                  Navigator.pop(context);
                 },
                 child: const Text('Entendido', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
@@ -96,7 +82,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         );
       }
-    } catch (error) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -123,26 +109,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Únete a Direction Futbol Pro')),
+      appBar: AppBar(title: const Text('Unete a Direction Futbol Pro')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- OPCIÓN FREELANCER ---
+              // --- OPCION FREELANCER ---
               Container(
                 decoration: BoxDecoration(
-                  color: _isFreelancer 
-                      ? Colors.green.withOpacity(0.1) 
-                      : Colors.transparent,
+                  color: _isFreelancer ? Colors.green.withOpacity(0.1) : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
-                  border: _isFreelancer 
-                      ? Border.all(color: Colors.green.withOpacity(0.3)) 
-                      : null,
+                  border: _isFreelancer ? Border.all(color: Colors.green.withOpacity(0.3)) : null,
                 ),
                 child: SwitchListTile(
-                  title: const Text('Soy Entrenador Freelancer'),
+                  title: const Text('Soy Entrenador'),
                   subtitle: const Text('Vende tus plantillas sin unirte a un club'),
                   value: _isFreelancer,
                   onChanged: (val) {
@@ -160,89 +142,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(height: 24),
 
               if (!_isFreelancer) ...[
-                // --- BLOQUE ENTRENADOR CONTRATADO ---
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                TextFormField(
+                  controller: _academyNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre de Academia o Empresa',
+                    prefixIcon: Icon(Icons.stadium),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '¿Te uniste a un Club?',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Ingresa el código que te dio tu administrador.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _academyCodeController,
-                        onChanged: _onCodeChanged,
-                        decoration: const InputDecoration(
-                          labelText: 'Código de Invitación',
-                          prefixIcon: Icon(Icons.vpn_key),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ],
-                  ),
+                  textCapitalization: TextCapitalization.words,
                 ),
-
-                const SizedBox(height: 24),
-                const Row(children: [
-                  Expanded(child: Divider()),
-                  Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text("O")),
-                  Expanded(child: Divider()),
-                ]),
-                const SizedBox(height: 24),
-
-                // --- BLOQUE INDEPENDIENTE / DUEÑO ---
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0D47A1).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '¿Eres Independiente o Dueño?',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Colors.blue,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Crea tu propia marca personal para gestionar tus tácticas.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _academyNameController,
-                        onChanged: _onNameChanged,
-                        decoration: const InputDecoration(
-                          labelText: 'Nombre de tu Marca / Club',
-                          prefixIcon: Icon(Icons.stadium),
-                          border: OutlineInputBorder(),
-                        ),
-                        textCapitalization: TextCapitalization.words,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 16),
               ],
-              
+
               TextFormField(
                 controller: _fullNameController,
                 decoration: const InputDecoration(
@@ -264,12 +174,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               TextFormField(
                 controller: _passwordController,
                 decoration: const InputDecoration(
-                  labelText: 'Contraseña',
+                  labelText: 'Contrasena',
                   prefixIcon: Icon(Icons.lock_outline),
                 ),
                 obscureText: true,
               ),
-              
+
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: _isLoading ? null : _signUp,
